@@ -9,4 +9,6 @@ add_executable(scrabblePi board.cpp
         tiles.cpp
         rack.h
         rack.cpp
-        main.cpp)
+        main.cpp
+        move.h
+        move.cpp)

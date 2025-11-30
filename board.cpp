@@ -52,7 +52,7 @@ static void printLegend() {
 }
 
 static void printHorizontalBorder() {
-    cout << "  +";
+    cout << "    +";
     for (int col = 0; col < BOARD_SIZE; col++) {
         for (int i = 0; i < CELL_INNER_WIDTH; i++) {
             cout << "-";
@@ -67,7 +67,7 @@ static void printColumnHeader() {
     printHorizontalBorder();
 
     // Leading spaces so numbers align with the board below
-    cout << "   |";
+    cout << "    |";
     for (int col = 0; col < BOARD_SIZE; col++) {
         string numberText = to_string(col + 1);
         cout << centerText(numberText, CELL_INNER_WIDTH) << "|";
@@ -146,7 +146,76 @@ Board createBoard() {
     return board;
 }
 
-void printBoard(const Board& board) {
+// clearing the letter board
+void clearLetterBoard(LetterBoard &letters) {
+    for (int row = 0; row < BOARD_SIZE; row++) {
+        for (int col = 0; col < BOARD_SIZE; col++) {
+            letters[row][col] = ' '; //empty
+        }
+    }
+}
+
+// clearing the blank board
+void clearBlankBoard(BlankBoard &blanks) {
+    for (int row = 0; row < BOARD_SIZE; row++) {
+        for (int col = 0; col < BOARD_SIZE; col++) {
+            blanks[row][col] = false;
+        }
+    }
+}
+
+// placing the word on letter board
+bool placeWordOnBoard(LetterBoard &letters, int row, int col, bool horizontal, const string &word) {
+    int dr = horizontal ? 0 : 1; //goes row by row if its vertical (row step)
+    int dc = horizontal ? 1 : 0; //goes column by column if its horizontal (column step)
+
+    // 1) bounds check
+    int r = row;
+    int c = col;
+
+    // C++ learning
+    // for (char ch: word) means loop through each character inside the string word
+    for (char ch: word) {
+        if (r<0 || r >= BOARD_SIZE || c<0 || c >= BOARD_SIZE) {
+            return false;
+        }
+        r += dr;
+        c += dc;
+    }
+
+    // 2) Checking for conflicts
+    r = row;
+    c = col;
+
+    for (char ch: word) {
+
+        // C++ learning
+        // std::toupper converts letter strings to uppercase
+
+        char upper = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+        char existing = letters[r][c];
+
+        if (existing != ' ' && existing != upper) {
+            return false; // trying to overwrite a different letter
+        }
+        r += dr;
+        c += dc;
+    }
+
+    // 3) Actually place the letters
+    r = row;
+    c = col;
+    for (char ch: word) {
+        char upper = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+        letters[r][c] = upper;
+        r += dr;
+        c += dc;
+    }
+
+    return true;
+}
+
+void printBoard(const Board &bonusBoard, const LetterBoard &letters) {
     printTitle();
     printLegend();
     printColumnHeader();
@@ -159,7 +228,16 @@ void printBoard(const Board& board) {
 
         //print each cell in this row
         for (int col = 0; col < BOARD_SIZE; col++) {
-            string cellText = cellLabel(board[row][col]);
+            char letterOnBoard = letters[row][col];
+            string cellText;
+
+            if (letterOnBoard != ' ') {
+                // There is a tile here, show letter instead of bonus
+                cellText = string(1, letterOnBoard);
+            } else {
+                cellText = cellLabel(bonusBoard[row][col]);
+            }
+
             cout << centerText(cellText, CELL_INNER_WIDTH) << "|";
         }
         cout << "\n";
