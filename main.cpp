@@ -24,6 +24,7 @@ int main() {
     TileRack playerRack;
     drawTiles(bag, playerRack, 7);
 
+    printTitle();
     cout << "Welcome to Terminal Crossword Game (engine test)\n";
     printBoard(bonusBoard, letters);
     printRack(playerRack);

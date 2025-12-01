@@ -43,5 +43,8 @@ bool placeWordOnBoard(LetterBoard &letters, int row, int col, bool horizontal, c
 // Create and return a board with all Scrabble bonus squares set.
 Board createBoard();
 
+// Print the Title (once)
+void printTitle();
+
 // Print the board with letters if present, otherwise with bonuses.
 void printBoard(const Board &bonusBoard, const LetterBoard &letters);

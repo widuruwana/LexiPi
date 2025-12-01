@@ -36,15 +36,6 @@ static string centerText(const string& text, int width) {
     return string(leftPadding, ' ') + text + string(rightPadding, ' ');
 }
 
-static void printTitle() {
-    cout << "=========================================\n";
-    cout << "                SCRABBLE_PI\n";
-    cout << "             Terminal Edition\n";
-    cout << "\n";
-    cout << "         For My Lovely Girlfriend\n";
-    cout << "=========================================\n\n";
-}
-
 static void printLegend() {
     cout << "Legend:\n";
     cout << "  <2x> = Double Word   <3x> = Triple Word\n";
@@ -75,6 +66,15 @@ static void printColumnHeader() {
     cout << "\n";
 
     printHorizontalBorder();
+}
+
+void printTitle() {
+    cout << "=========================================\n";
+    cout << "                LEXI_PI\n";
+    cout << "             Terminal Edition\n";
+    cout << "\n";
+    cout << "     For My Lovely Girlfriend, Minadee\n";
+    cout << "=========================================\n\n";
 }
 
 // Building the board and setting up all the bonus squares
@@ -216,7 +216,7 @@ bool placeWordOnBoard(LetterBoard &letters, int row, int col, bool horizontal, c
 }
 
 void printBoard(const Board &bonusBoard, const LetterBoard &letters) {
-    printTitle();
+    //printTitle();
     printLegend();
     printColumnHeader();
 

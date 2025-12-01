@@ -90,6 +90,8 @@ static int scoreMainWord(const Board &bonusBoard, const LetterBoard &letters, co
             break;
         }
         if (letters[pr][pc] == ' ') break;
+
+        //True start of the word (letters[r][c])
         r = pr;
         c = pc;
     }
@@ -179,7 +181,7 @@ static int scoreCrossWord(const Board &bonusBoard, const LetterBoard &letters, c
         if (pr < 0 || pr >= BOARD_SIZE || pc < 0 || pc >= BOARD_SIZE) {
             break;
         }
-        if (letters[r][c] == ' ') {
+        if (letters[pr][pc] == ' ') {
             break;
         }
 
@@ -196,8 +198,8 @@ static int scoreCrossWord(const Board &bonusBoard, const LetterBoard &letters, c
     while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && letters[r][c] != ' ') {
 
         ++length;
-        char ch = letters[r][c];
 
+        char ch = letters[r][c];
         int base = blanks[r][c] ? 0 : letterPoints(ch);
         int letterScore = base;
 
@@ -272,6 +274,11 @@ MoveResult playWord(const Board &bonusBoard, LetterBoard &letters, BlankBoard &b
 
     // Walk along the line, filling empties with rack letters in order,
     // Skipping over existing letters on board.
+    char boardSquare = letters[r][c];
+    if (boardSquare != ' ') {
+        res.errorMessage = "Starting cell should be empty";
+        return res;
+    }
 
     while (true) {
         // checking if off board
@@ -334,6 +341,70 @@ MoveResult playWord(const Board &bonusBoard, LetterBoard &letters, BlankBoard &b
         usedRack[idx] = true;
         nt.isBlank = (rack[idx].letter == '?');
         nt.rackIndex = idx;
+    }
+
+    // Connectivity/ "Red Domain" Check
+
+    // Detecting if the board already has any tiles (pre-move)
+    bool boardHasExistingTiles = false;
+    for (int rr = 0; rr < BOARD_SIZE; ++rr) {
+        for (int cc = 0; cc < BOARD_SIZE; ++cc) {
+            if (letters[rr][cc] != ' ') {
+                boardHasExistingTiles = true;
+                break;
+            }
+        }
+    }
+
+    if (!boardHasExistingTiles) {
+
+        // First move must cover the center square (H8 -> row 7, col 7)
+        int centerRow = BOARD_SIZE / 2;
+        int centerCol = BOARD_SIZE / 2;
+
+        bool coversCenter = false;
+        for (const auto &nt : newTiles) {
+            if (nt.row == centerRow && nt.col == centerCol) {
+                coversCenter = true;
+                break;
+            }
+        }
+
+        if (!coversCenter) {
+            res.errorMessage = "First move must cover the centre square (H8)";
+            return res;
+        }
+
+    } else {
+        // for subsequent moves at least one new tile must touch an existing tile
+        bool touchesExisting = false;
+
+        static const int drs[4] = {-1, 1, 0, 0};
+        static const int dcs[4] = {0, 0, -1, 1};
+
+        for (const auto &nt : newTiles) {
+            for (int d = 0; d < 4; ++d) {
+                int nr = nt.row + drs[d];
+                int nc = nt.col + dcs[d];
+
+                if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) {
+                    continue;
+                }
+
+                if (letters[nr][nc] != ' ') {
+                    touchesExisting = true;
+                    break;
+                }
+            }
+            if (touchesExisting) {
+                break;
+            }
+        }
+
+        if (!touchesExisting) {
+            res.errorMessage = "Word must connect to the existing network of tiles";
+            return res;
+        }
     }
 
     // Place the letters on the board
