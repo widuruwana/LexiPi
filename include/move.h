@@ -3,7 +3,7 @@
 #include <string>
 #include "board.h"
 #include "tiles.h"
-#include "../include/rack.h"
+#include "rack.h"
 
 using namespace std;
 
