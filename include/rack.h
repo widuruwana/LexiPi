@@ -2,7 +2,7 @@
 
 #include <vector>
 #include <string>
-#include "tiles.h"
+#include "../include/tiles.h"
 
 using namespace std;
 

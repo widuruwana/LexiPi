@@ -1,4 +1,5 @@
-#include "rack.h"
+#include "../include/rack.h"
+#include "../include/tiles.h"
 
 #include <iostream>
 #include <algorithm>

@@ -1,10 +1,10 @@
 #include <iostream>
 #include <string>
 
-#include "board.h"
-#include "move.h"
-#include "tiles.h"
-#include "rack.h"
+#include "../include/board.h"
+#include "../include/move.h"
+#include "../include/tiles.h"
+#include "../include/rack.h"
 
 using namespace std;
 
@@ -21,16 +21,25 @@ int main() {
     TileBag bag = createStandardTileBag();
     shuffleTileBag(bag);
 
-    TileRack playerRack;
-    drawTiles(bag, playerRack, 7);
+    Player players[2];
+    for (int i=0; i < 2; i++) {
+        drawTiles(bag, players[i].rack, 7);
+        players[i].score = 0;
+    }
+
+    int currentPlayer = 0; // 0 -> Player 1, 1 -> Player 2
 
     printTitle();
-    cout << "Welcome to Terminal Crossword Game (engine test)\n";
+    cout << "Welcome to Terminal Crossword Game (2-player mode)\n";
+
     printBoard(bonusBoard, letters);
-    printRack(playerRack);
+    cout << "Scores: Player 1 = " << players[0].score << " | Player 2 = " << players[1].score << endl;
+    cout << "Player " << (currentPlayer + 1) << "'s Rack" << endl;
+
+    printRack(players[currentPlayer].rack);
 
     while (true) {
-        cout << "\nCommands:\n"
+        cout << "\nCommands (Player " << currentPlayer + 1 << "):\n"
              << " m -> play a move\n"
              << " r -> rack command (swap/shuffle)\n"
              << " q -> quit\n"
@@ -52,6 +61,24 @@ int main() {
         choice = static_cast<char>(toupper(static_cast<unsigned char>(choice)));
 
         if (choice == 'Q') {
+            cout << "Confirm Resignation (Y/N): ";
+            char quit;
+            cin >> quit;
+            quit = static_cast<char>(toupper(static_cast<unsigned char>(quit)));
+
+            if (quit != 'Y') {
+                cout << (currentPlayer + 1) << " is still in game\n";
+            } else {
+                cout << "\nGame Over.\n";
+                cout << "Final Scores:\n";
+                cout << "Player 1: " << players[0].score << endl;
+                cout << "Player 2: " << players[1].score << endl;
+
+                if (players[0].score > players[1].score) {
+                    cout
+                }
+            }
+
             break;
         }
 
@@ -178,9 +205,13 @@ int main() {
                 cout << "Unexpected error applying move: " << finalResult.errorMessage << endl;
             } else {
                 cout << "Move played. Score: " << finalResult.score << endl;
+                totalScore += finalResult.score;
             }
 
             printBoard(bonusBoard, letters);
+
+            cout << "Total Score: " << totalScore << endl;
+
             printRack(playerRack);
             continue;
         }

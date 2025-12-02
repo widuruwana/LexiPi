@@ -3,9 +3,15 @@
 #include <string>
 #include "board.h"
 #include "tiles.h"
-#include "rack.h"
+#include "../include/rack.h"
 
 using namespace std;
+
+// Game can have 2-4 players
+struct Player {
+    TileRack rack;
+    int score = 0;
+};
 
 // Result of trying to play a word
 struct MoveResult {
