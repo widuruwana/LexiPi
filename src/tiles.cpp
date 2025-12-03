@@ -1,10 +1,110 @@
 #include "../include/tiles.h"
 
+#include <iostream>
+#include <vector>
 #include <algorithm>
 #include <random>
 #include <ctime>
 
 using namespace std;
+
+// Print the contents of the tile bag in groups of 5 per letter
+void printTileBag(const TileBag &bag) {
+    if (bag.empty()) {
+        cout << "\nTile Bag is empty.\n" << endl;
+        return;
+    }
+
+    // counts[0..25] = A-Z, counts[26] = '?'
+    int counts[27] = {0};
+
+    for (const Tile &tile : bag) {
+        char ch = tile.letter;
+        unsigned char uch = static_cast<unsigned char>(ch);
+
+        if (ch == '?') {
+            counts[26]++;
+        } else if (isalpha(uch)){
+            ch = static_cast<char>(toupper(uch));
+            counts[ch - 'A']++;
+        }
+    }
+
+    // Building token gaps like "AAAAA", "BB", "??"
+    vector<string> tokens;
+
+    for (int i = 0; i < 26; i++) {
+        int count = counts[i];
+        if (count <= 0) continue;
+
+        char letter = static_cast<char>('A' + i);
+        while (count > 0) {
+            int groupSize = min(5, count);
+            tokens.push_back(string(groupSize, letter));
+            count -= groupSize;
+        }
+    }
+
+    if (counts[26] > 0){
+        int count = counts[26];
+        while (count > 0) {
+            int groupSize = min(5, count);
+            tokens.push_back(string(groupSize, '?'));
+            count -= groupSize;
+        }
+    }
+
+    // Pack tokens into lines with limited no. of groups per line
+    const int MAX_GROUPS_PER_LINE = 10;
+    vector<string> lines;
+    string current;
+    int groupsInCurrentLine = 0;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const string &tok = tokens[i];
+
+        if (groupsInCurrentLine == 0) {
+            // first group in the line
+            current = "  " + tok; // reset
+            groupsInCurrentLine = 1;
+        } else if (groupsInCurrentLine >= MAX_GROUPS_PER_LINE) {
+            // line full
+            lines.push_back(current);
+            current = "  " + tok;  // reset
+            groupsInCurrentLine = 1;
+        } else {
+            current += "  " + tok; // append
+            groupsInCurrentLine++;
+        }
+    }
+
+    // push the last partial line too
+    if (!current.empty()) {
+        lines.push_back(current);
+    }
+
+    // Find the widest line for box width
+    size_t contentWidth = 0;
+    for (const string &ln : lines) {
+        contentWidth = max(contentWidth, ln.size());
+    }
+
+    // +-----(contentWidth x "-")-----+
+    string border = "+" + string(contentWidth + 2, '-') + "+";
+
+    cout << "\nTiles remaining in bag: " << bag.size() << endl;
+    cout << border << endl;
+
+    for (const string &ln : lines) {
+        string padded = ln;
+        if (padded.size() < contentWidth) {
+            padded += string(contentWidth - padded.size(), ' ');
+        }
+        cout << padded << endl;
+    }
+    cout << border << endl;
+}
+
 
 TileBag createStandardTileBag() {
     TileBag bag;

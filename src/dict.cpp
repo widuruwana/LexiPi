@@ -1,5 +1,7 @@
 #include <iostream>
 #include <string>
+#include <vector>
+#include <string>
 #include <unordered_set>
 #include <fstream>
 #include <cctype>
@@ -45,9 +47,9 @@ bool isValidWord(const string &word) {
 }
 
 // Get the full word from the board (for challenging)
-string extractMainWord(const LetterBoard &letters, int row, int col, bool horizonatl) {
-    int dr = horizonatl ? 0 : 1;
-    int dc = horizonatl ? 1 : 0;
+string extractMainWord(const LetterBoard &letters, int row, int col, bool horizontal) {
+    int dr = horizontal ? 0 : 1;
+    int dc = horizontal ? 1 : 0;
 
     int r = row;
     int c = col;
@@ -69,29 +71,73 @@ string extractMainWord(const LetterBoard &letters, int row, int col, bool horizo
     return word;
 }
 
+// Returns a list of all the cross words formed.
+vector<string> crossWordList(const LetterBoard &letters, int row, int col, bool mainHorizontal) {
+    vector<string> words;
 
+    // perpendicular direction
+    int crossDr = mainHorizontal ? 1 : 0;
+    int crossDc = mainHorizontal ? 0 : 1;
 
+    // for going from tile to tile
+    int mainDr = mainHorizontal ? 0 : 1;
+    int mainDc = mainHorizontal ? 1 : 0;
 
+    int r = row;
+    int c = col;
 
+    while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && letters[r][c] != ' ') {
+        // First check if there is any neighbor in that perpendicular direction
+        bool hasNeighbor = false;
 
+        // checking either side
+        int nr = r - crossDr;
+        int nc = c - crossDc;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && letters[nr][nc] != ' ') {
+            hasNeighbor = true;
+        }
 
+        nr = r + crossDr;
+        nc = c + crossDc;
+        if (!hasNeighbor && nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && letters[nr][nc] != ' ') {
+            hasNeighbor = true;
+        }
 
+        // Single tile with no adjacent letter in cross direction
+        if (hasNeighbor) {
+            // Finding start of the cross word.
+            int cr = r;
+            int cc = c;
 
+            while (cr - crossDr >= 0 && cr - crossDr < BOARD_SIZE && cc - crossDc >= 0 &&
+                   cc - crossDc < BOARD_SIZE && letters[cr - crossDr][cc - crossDc] != ' ') {
+                cr = cr - crossDr;
+                cc = cc - crossDc;
+            }
 
+            string word;
+            // Walk forward along the cross-word direction
+            int wr = cr;
+            int wc = cc;
+            while (wr >= 0 && wr < BOARD_SIZE && wc >= 0 &&
+                   wc < BOARD_SIZE && letters[wr][wc] != ' ') {
+                word.push_back(letters[wr][wc]);
+                wr += crossDr;
+                wc += crossDc;
+            }
 
+            if (word.size() > 1) {
+                words.push_back(word);
+            }
+        }
 
+        // Advance to the next cell along the main word.
+        r += mainDr;
+        c += mainDc;
 
+    }
 
+    cout << "No of cross words found: " << words.size() << "\n";
 
-
-
-
-
-
-
-
-
-
-
-
-
+    return words;
+}

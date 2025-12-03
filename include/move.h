@@ -11,6 +11,7 @@ using namespace std;
 struct Player {
     TileRack rack;
     int score = 0;
+    int passCount = 0;
 };
 
 // Result of trying to play a word

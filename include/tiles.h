@@ -16,6 +16,9 @@ using TileBag = vector<Tile>;
 // Create the standard 100-tile english scrabble bag
 TileBag createStandardTileBag();
 
+// Print the tile bag
+void printTileBag(const TileBag &bag);
+
 // Shuffle the tile bag
 void shuffleTileBag(TileBag &bag);
 

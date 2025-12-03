@@ -27,6 +27,7 @@ int main() {
     for (int i=0; i < 2; i++) {
         drawTiles(bag, players[i].rack, 7);
         players[i].score = 0;
+        players[i].passCount = 0;
     }
 
     int currentPlayer = 0; // 0 -> Player 1, 1 -> Player 2
@@ -49,11 +50,43 @@ int main() {
     printRack(players[currentPlayer].rack);
 
     while (true) {
+
+        if (players[0].passCount >= 3 && players[1].passCount >= 3) {
+            cout << "\nSix consecutive scoreless turns by both players\n";
+
+            int rackScore[2] = {0, 0};
+
+            for (int i = 0; i < 2; i++) {
+                for (auto &tile: players[i].rack) {
+                    rackScore[i] += tile.points;
+                }
+            }
+            players[0].score -= rackScore[0] * 2;
+            players[1].score -= rackScore[1] * 2;
+
+            cout << "\nGame Over.\n";
+            cout << "Final Scores:\n";
+            cout << "Player 1: " << players[0].score << endl;
+            cout << "Player 2: " << players[1].score << endl;
+
+            if (players[0].score > players[1].score) {
+                cout << "Player 1 wins!\n";
+            } else if (players[1].score > players[0].score) {
+                cout << "Player 2 wins!\n";
+            } else {
+                cout << "Match is a tie!\n";
+            }
+            break;
+        }
+
+
         cout << "\nCommands (Player " << currentPlayer + 1 << "):\n"
              << " m -> play a move\n"
              << " r -> rack command (swap/shuffle/exchange)\n"
              << " c -> challenge last word\n"
              << " b -> show board\n"
+             << " t -> show tile bag\n"
+             << " p -> pass\n"
              << " q -> quit\n"
              << "Enter Choice: ";
 
@@ -72,8 +105,36 @@ int main() {
 
         choice = static_cast<char>(toupper(static_cast<unsigned char>(choice)));
 
+        // Passing
+        if (choice == 'P') {
+            cout << "Player " << (currentPlayer + 1) << " passes their turn." << endl;
+
+            players[currentPlayer].passCount += 1;
+
+            // After a pass, can no longer challenge the previous word.
+            canChallenge = false;
+            lastMove.exists = false;
+
+            currentPlayer = 1 - currentPlayer;
+
+            cout << "Rack:\n";
+
+            printRack(players[currentPlayer].rack);
+            continue;
+        }
+
         if (choice == 'B') {
             printBoard(bonusBoard, letters);
+            cout << "Scores: Player 1 = " << players[0].score << " | Player 2 = " << players[1].score << endl;
+
+            cout << "Rack:\n";
+
+            printRack(players[currentPlayer].rack);
+            continue;
+        }
+
+        if (choice == 'T') {
+            printTileBag(bag);
             continue;
         }
 
@@ -94,6 +155,10 @@ int main() {
             string challengedWord = extractMainWord(letters, lastMove.startRow,
                                     lastMove.startCol, lastMove.horizontal);
 
+            // Get the list of cross words from the board.
+            vector<string> crossWords = crossWordList(letters, lastMove.startRow,
+                                    lastMove.startCol, lastMove.horizontal);
+
             if (challengedWord.empty()) {
                 cout << "No word found to challenge\n";
                 canChallenge = false;
@@ -101,15 +166,26 @@ int main() {
                 continue;
             }
 
-            cout << "Challenging word: " << challengedWord << endl;
+            cout << "Challenging words: " << challengedWord;
+            for (auto &crossWord : crossWords) {
+                cout << "  " << crossWord;
+            }
+
+            bool isValidCrossWord = true;
+
+            for ( string &word: crossWords) {
+                if (!isValidWord(word)) {
+                    isValidCrossWord = false;
+                }
+            }
 
             // 3) Check dictionary
-            if (!isValidWord(challengedWord)) {
+            if (!isValidWord(challengedWord) || !isValidCrossWord) {
                 //Challenge Successful:
                 // Word is not in dictionary -> undo it and remove it from the board.
-                cout << "Challenge successful! \"" << challengedWord << "\" is NOT in CSW24\n";
+                cout << "\nChallenge successful! The play is not valid.\n";
 
-                // Restor snapshot from before the last word move
+                // Restore snapshot from before the last word move
                 letters = lastSnapShot.letters;
                 blanks = lastSnapShot.blanks;
                 bag = lastSnapShot.bag;
@@ -133,7 +209,7 @@ int main() {
             } else {
                 // Challenge Failed.
                 // Word is valid, opponent gets +5
-                cout << "Challenge failed. \"" << challengedWord << "\" is a valid word.\n";
+                cout << "\nChallenge failed! The play is valid.\n";
                 players[lastMove.playerIndex].score += 5;
                 cout << "Player " << (lastMove.playerIndex + 1) << " gains 5 points.\n";
 
@@ -195,6 +271,7 @@ int main() {
                 // After an exchange the turn is over
                 if (command == "X" || command == "x") {
                     // after an exchange you can no longer challenge that last word.
+                    players[currentPlayer].passCount += 1;
                     canChallenge = false;
                     lastMove.exists = false;
 
@@ -203,6 +280,7 @@ int main() {
                     cout << "Exchange is used. Switching over to Player " << (currentPlayer + 1) << "'s turn\n";
                     cout << "\n\nPlayer" << (currentPlayer + 1) << "'s Rack" << endl;
                     printBoard(bonusBoard, letters);
+                    cout << "Scores: Player 1 = " << players[0].score << " | Player 2 = " << players[1].score << endl;
                     printRack(players[currentPlayer].rack);
                 }
             } else {
@@ -329,6 +407,10 @@ int main() {
             } else {
                 cout << "Move played. Score: " << finalResult.score << endl;
                 players[currentPlayer].score += finalResult.score;
+
+                // This will revert back to previous values if the play becomes illegal.
+                players[0].passCount = 0;
+                players[1].passCount = 0;
 
                 // Recording the last move for potential challenging.
                 lastMove.exists = true;
