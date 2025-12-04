@@ -13,4 +13,6 @@ add_executable(scrabblePi src/board.cpp
         include/move.h
         src/move.cpp
         src/dict.cpp
-        include/dict.h)
+        include/dict.h
+        src/choices.cpp
+        include/choices.h)

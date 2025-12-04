@@ -1,4 +1,5 @@
 #include "../include/tiles.h"
+#include "../include/rack.h"
 
 #include <iostream>
 #include <vector>
@@ -8,12 +9,7 @@
 
 using namespace std;
 
-// Print the contents of the tile bag in groups of 5 per letter
-void printTileBag(const TileBag &bag) {
-    if (bag.empty()) {
-        cout << "\nTile Bag is empty.\n" << endl;
-        return;
-    }
+static vector<string> buildTileGroups(const vector<Tile> &bag) {
 
     // counts[0..25] = A-Z, counts[26] = '?'
     int counts[27] = {0};
@@ -54,15 +50,19 @@ void printTileBag(const TileBag &bag) {
         }
     }
 
+    return tokens;
+}
+
+// Pack toens into multiple lines inside a box
+static void printGroupedTokens(const vector<string> &tokens, const string &headerLabel) {
+
     // Pack tokens into lines with limited no. of groups per line
     const int MAX_GROUPS_PER_LINE = 10;
     vector<string> lines;
     string current;
     int groupsInCurrentLine = 0;
 
-    for (size_t i = 0; i < tokens.size(); ++i) {
-        const string &tok = tokens[i];
-
+    for (const string &tok : tokens) {
         if (groupsInCurrentLine == 0) {
             // first group in the line
             current = "  " + tok; // reset
@@ -92,7 +92,7 @@ void printTileBag(const TileBag &bag) {
     // +-----(contentWidth x "-")-----+
     string border = "+" + string(contentWidth + 2, '-') + "+";
 
-    cout << "\nTiles remaining in bag: " << bag.size() << endl;
+    cout << headerLabel << endl;
     cout << border << endl;
 
     for (const string &ln : lines) {
@@ -104,6 +104,34 @@ void printTileBag(const TileBag &bag) {
     }
     cout << border << endl;
 }
+
+// Show the tilebag from player's prespective
+void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool revealOpponentRack) {
+
+    // Build "unseen" set of tiles (bag + opponent's rack)
+    vector<Tile> unseen;
+    unseen.reserve(bag.size() + opponentRack.size());
+    unseen.insert(unseen.end(), bag.begin(), bag.end());
+    unseen.insert(unseen.end(), opponentRack.begin(), opponentRack.end());
+
+    int unseenCount = static_cast<int>(unseen.size());
+    int bagCount = static_cast<int>(bag.size());
+    int oppCount = static_cast<int>(opponentRack.size());
+
+    cout << "\nTiles not in your rack: " << unseenCount << endl;
+
+    // Show unseen tiles as grouped distribution
+    vector<string> unseenTokens = buildTileGroups(unseen);
+    printGroupedTokens(unseenTokens, " Unseen tiles");
+
+    // if the real bag has 7 or fewer tiles, unseen exactly what the opponent has
+    if (revealOpponentRack) {
+        if (!opponentRack.empty() && unseenCount <= 7) {
+            cout << "\n(Endgame) Oppnent rack size: " << unseenCount << endl;
+        }
+    }
+}
+
 
 
 TileBag createStandardTileBag() {

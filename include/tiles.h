@@ -2,6 +2,7 @@
 
 #include <vector>
 
+
 using namespace std;
 
 // Represents a single scrabble Tile
@@ -17,7 +18,7 @@ using TileBag = vector<Tile>;
 TileBag createStandardTileBag();
 
 // Print the tile bag
-void printTileBag(const TileBag &bag);
+void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool revealOpponentRack);
 
 // Shuffle the tile bag
 void shuffleTileBag(TileBag &bag);

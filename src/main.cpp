@@ -1,5 +1,4 @@
 #include <iostream>
-#include <numeric>
 #include <string>
 
 #include "../include/board.h"
@@ -7,6 +6,7 @@
 #include "../include/tiles.h"
 #include "../include/rack.h"
 #include "../include/dict.h"
+#include "../include/choices.h"
 
 using namespace std;
 
@@ -34,13 +34,19 @@ int main() {
 
     GameSnapshot lastSnapShot;
     LastMoveInfo lastMove;
+    lastMove.exists = false;
+    lastMove.playerIndex = -1;
+
     bool canChallenge = false;
 
     printTitle();
     cout << "Welcome to Terminal Crossword Game (2-player mode)\n";
 
+    bool dictActive = true;
+
     if (!loadDictionary("build/Release/data/csw24.txt")) {
         cout << "WARNING: Dictionary not loaded, challenge feature will not work.\n";
+        dictActive = false;
     }
 
     printBoard(bonusBoard, letters);
@@ -51,41 +57,31 @@ int main() {
 
     while (true) {
 
-        if (players[0].passCount >= 3 && players[1].passCount >= 3) {
-            cout << "\nSix consecutive scoreless turns by both players\n";
-
-            int rackScore[2] = {0, 0};
-
-            for (int i = 0; i < 2; i++) {
-                for (auto &tile: players[i].rack) {
-                    rackScore[i] += tile.points;
-                }
-            }
-            players[0].score -= rackScore[0] * 2;
-            players[1].score -= rackScore[1] * 2;
-
-            cout << "\nGame Over.\n";
-            cout << "Final Scores:\n";
-            cout << "Player 1: " << players[0].score << endl;
-            cout << "Player 2: " << players[1].score << endl;
-
-            if (players[0].score > players[1].score) {
-                cout << "Player 1 wins!\n";
-            } else if (players[1].score > players[0].score) {
-                cout << "Player 2 wins!\n";
-            } else {
-                cout << "Match is a tie!\n";
-            }
+        if (handleSixPassEndGame(players)) {
+            //Game over
             break;
         }
 
+        if (handleEmptyRackEndGame(bonusBoard,
+                                   letters,
+                                   blanks,
+                                   bag,
+                                   players,
+                                   lastSnapShot,
+                                   lastMove,
+                                   currentPlayer,
+                                   canChallenge,
+                                   dictActive)) {
+           //Game over
+           break;
+        }
 
         cout << "\nCommands (Player " << currentPlayer + 1 << "):\n"
              << " m -> play a move\n"
              << " r -> rack command (swap/shuffle/exchange)\n"
              << " c -> challenge last word\n"
              << " b -> show board\n"
-             << " t -> show tile bag\n"
+             << " t -> show unseen tiles\n"
              << " p -> pass\n"
              << " q -> quit\n"
              << "Enter Choice: ";
@@ -107,124 +103,34 @@ int main() {
 
         // Passing
         if (choice == 'P') {
-            cout << "Player " << (currentPlayer + 1) << " passes their turn." << endl;
-
-            players[currentPlayer].passCount += 1;
-
-            // After a pass, can no longer challenge the previous word.
-            canChallenge = false;
-            lastMove.exists = false;
-
-            currentPlayer = 1 - currentPlayer;
-
-            cout << "Rack:\n";
-
-            printRack(players[currentPlayer].rack);
+            passTurn(players, currentPlayer, canChallenge, lastMove);
             continue;
         }
 
         if (choice == 'B') {
             printBoard(bonusBoard, letters);
-            cout << "Scores: Player 1 = " << players[0].score << " | Player 2 = " << players[1].score << endl;
-
-            cout << "Rack:\n";
-
-            printRack(players[currentPlayer].rack);
             continue;
         }
 
         if (choice == 'T') {
-            printTileBag(bag);
+            int opponent = 1 - currentPlayer;
+            bool revealOpponent = (static_cast<int>(bag.size()) <= 7);
+
+            printTileBag(bag, players[opponent].rack, revealOpponent);
             continue;
         }
 
         if (choice == 'C') {
-            // 1) Basic checks
-            if (!canChallenge || !lastMove.exists) {
-                cout << "No word available to challenge.\n";
-                continue;
-            }
-
-            // can only challenge the opponents last word
-            if (lastMove.playerIndex == currentPlayer) {
-                cout << "You can only challenge your opponent's last word.\n";
-                continue;
-            }
-
-            // 2) Get the word from the board
-            string challengedWord = extractMainWord(letters, lastMove.startRow,
-                                    lastMove.startCol, lastMove.horizontal);
-
-            // Get the list of cross words from the board.
-            vector<string> crossWords = crossWordList(letters, lastMove.startRow,
-                                    lastMove.startCol, lastMove.horizontal);
-
-            if (challengedWord.empty()) {
-                cout << "No word found to challenge\n";
-                canChallenge = false;
-                lastMove.exists = false;
-                continue;
-            }
-
-            cout << "Challenging words: " << challengedWord;
-            for (auto &crossWord : crossWords) {
-                cout << "  " << crossWord;
-            }
-
-            bool isValidCrossWord = true;
-
-            for ( string &word: crossWords) {
-                if (!isValidWord(word)) {
-                    isValidCrossWord = false;
-                }
-            }
-
-            // 3) Check dictionary
-            if (!isValidWord(challengedWord) || !isValidCrossWord) {
-                //Challenge Successful:
-                // Word is not in dictionary -> undo it and remove it from the board.
-                cout << "\nChallenge successful! The play is not valid.\n";
-
-                // Restore snapshot from before the last word move
-                letters = lastSnapShot.letters;
-                blanks = lastSnapShot.blanks;
-                bag = lastSnapShot.bag;
-                players[0] = lastSnapShot.players[0];
-                players[1] = lastSnapShot.players[1];
-
-                // Offending player loses their move, challenger still has the turn.
-                // currentPlayer already is the challenger, so NOT flipping the turn.
-
-                canChallenge = false;
-                lastMove.exists = false;
-
-                cout << "Board and scores reverted to before the invalid word.\n";
-                printBoard(bonusBoard, letters);
-
-                cout << "Scores: Player 1 = " << players[0].score
-                     << " | Player 2 = " << players[1].score << endl;
-                cout << "Your rack:\n";
-                printRack(players[currentPlayer].rack);
-
-            } else {
-                // Challenge Failed.
-                // Word is valid, opponent gets +5
-                cout << "\nChallenge failed! The play is valid.\n";
-                players[lastMove.playerIndex].score += 5;
-                cout << "Player " << (lastMove.playerIndex + 1) << " gains 5 points.\n";
-
-                canChallenge = false;
-                lastMove.exists = false;
-
-                printBoard(bonusBoard, letters);
-
-                cout << "Scores: Player 1 = " << players[0].score
-                     << " | Player 2 = " << players[1].score << endl;
-
-                cout << "You still have your turn. Your rack:\n";
-                printRack(players[currentPlayer].rack);
-            }
-
+            challengeMove(bonusBoard,
+                          letters,
+                          blanks,
+                          bag,
+                          players,
+                          lastSnapShot,
+                          lastMove,
+                          currentPlayer,
+                          canChallenge,
+                          dictActive);
             continue;
         }
 
@@ -426,6 +332,7 @@ int main() {
 
             // Show next player's rack
             currentPlayer = 1 - currentPlayer;
+
             cout << "\nNow its Player " << (currentPlayer + 1) << "'s turn" << endl;
             cout << "Rack:\n";
 
