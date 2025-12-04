@@ -2,9 +2,11 @@
 
 #include <iostream>
 #include <string>
-#include <unordered_set>
-#include <fstream>
-#include <cctype>
+#include <vector>
+
+#include "../include/board.h"
+#include "../include/tiles.h"
+#include "../include/move.h"
 
 using namespace std;
 

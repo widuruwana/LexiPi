@@ -73,7 +73,7 @@ void printTitle() {
     cout << "                LEXI_PI\n";
     cout << "             Terminal Edition\n";
     cout << "\n";
-    cout << "     For My Lovely Girlfriend, Minadee\n";
+    //cout << "     For My Lovely Girlfriend, Minadee\n";
     cout << "=========================================\n\n";
 }
 

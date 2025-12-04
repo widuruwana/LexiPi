@@ -32,6 +32,13 @@ bool loadDictionary(const string &filename) {
     }
 
     cout << "\nLoaded " << gDictionary.size() << " words from " << filename << "\n";
+
+    /*
+    if (filename.substr(0, '.') == "csw24") {
+        cout << "Lexicon: CSW24";
+    }
+    */
+
     return true;
 }
 
