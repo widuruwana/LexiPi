@@ -26,6 +26,10 @@ struct LastMoveInfo {
     bool horizontal = false;
 };
 
+/* for detecting the EXE directory
+string getExecutableDirectory();
+*/
+
 // Load the dictionary.
 bool loadDictionary(const string &filename);
 
