@@ -38,9 +38,33 @@ string getExecutableDirectory() {
 */
 
 bool loadDictionary(const string &filename) {
-    ifstream in(filename);
-    if (!in) {
+    vector<string> searchPaths = {
+        "",
+        "data/",
+        "build/Release/data/",
+        "../data/",
+        "../../data/",
+        "../../../data/"
+    };
+
+    ifstream in;
+    string foundPath;
+
+    for (const auto& prefix : searchPaths) {
+        string fullPath = prefix + filename;
+        in.open(fullPath);
+        if (in.is_open()) {
+            foundPath = fullPath;
+            break;
+        }
+    }
+
+    if (!in.is_open()) {
         cout << "Failed to open dictionary file: " << filename << "\n";
+        cout << "Searched in:\n";
+        for (const auto& prefix : searchPaths) {
+            cout << "  " << prefix + filename << "\n";
+        }
         return false;
     }
 
@@ -52,7 +76,7 @@ bool loadDictionary(const string &filename) {
         gDictionary.insert(word);
     }
 
-    cout << "\nLoaded " << gDictionary.size() << " words from " << filename << "\n";
+    cout << "\nLoaded " << gDictionary.size() << " words from " << foundPath << "\n";
 
     /*
     if (filename.substr(0, '.') == "csw24") {
