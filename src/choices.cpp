@@ -105,7 +105,6 @@ bool handleEmptyRackEndGame(Board &bonusBoard,
             } else {
                 cout << "Match is a tie!\n";
             }
-            break;
 
             //game over
             return true;
