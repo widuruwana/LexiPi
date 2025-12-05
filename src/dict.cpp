@@ -5,6 +5,8 @@
 #include <unordered_set>
 #include <fstream>
 #include <cctype>
+#include <filesystem>
+#include <windows.h>
 
 #include "../include/board.h"
 #include "../include/move.h"
@@ -15,6 +17,25 @@
 using namespace std;
 
 unordered_set<string> gDictionary;
+
+/* to detect exe directory and append relative file path
+string getExecutableDirectory() {
+#ifdef _WIN32
+    char buffer[PATH_MAX];
+    GetModuleFileName(NULL, buffer, PATH_MAX);
+    filesystem::path exePath(buffer);
+    return exePath.parent_path().string();
+#else
+    char buffer[1024];
+    ssize_t count = readlink("/proc/self/exe", buffer, sizeof(buffer));
+    if (count != -1) {
+        filesystem::path exePath(string(buffer, count));
+        return exePath.parent_path().string();
+    }
+    return ".";
+#endif
+}
+*/
 
 bool loadDictionary(const string &filename) {
     ifstream in(filename);
