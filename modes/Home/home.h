@@ -8,4 +8,4 @@ void printTitleScreen();
 
 void showHowToPlayScreen();
 
-bool wordWizard(const string &word);
+void wordWizard(const string &word);

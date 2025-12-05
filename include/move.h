@@ -33,11 +33,6 @@ struct MoveResult {
 // - horizontal: true = left→right, false = top→bottom
 // - rackWord:   ONLY the letters the player is placing from their rack
 //               (do NOT include letters already on the board)
-//
-// Example for FANSITE over an existing S on the board:
-//   Board already has S in the path.
-//   Player types just "FANSITE".
-//   playWord will fill empty cells with those letters and "skip" the S.
 
 MoveResult playWord(
     const Board &bonusBoard,

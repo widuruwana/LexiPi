@@ -300,8 +300,7 @@ void showHowToPlayScreen() {
     clearScreen();
 }
 
-bool wordWizard(const string &word) {
-
+void wordWizard(const string &word) {
     clearScreen();
 
     cout << R"(
@@ -316,15 +315,76 @@ bool wordWizard(const string &word) {
 | |              | || |              | || |              | || |              | | | |              | || |              | || |              | || |              | || |              | || |              | |
 | '--------------' || '--------------' || '--------------' || '--------------' | | '--------------' || '--------------' || '--------------' || '--------------' || '--------------' || '--------------' |
  '----------------'  '----------------'  '----------------'  '----------------'   '----------------'  '----------------'  '----------------'  '----------------'  '----------------'  '----------------'
-)";
+)" << endl;
 
-    if (!isValidWord(word)) {
-        cout << "The play is invalid" << endl;
+    int wordNo = 0;;
+
+    while (true) {
+
+        int amount;
+
+        cout << "Enter the number of the words to be challenged: " << endl;
+
+        if (!(cin >> amount)) {
+            cout << "Invalid Input. Please enter the desired number\n";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            continue;
+        }
+
+        if (amount <= 0) {
+            cout << "Please enter a positive number.\n";
+            continue;
+        }
+
+        wordNo = amount;
+        break;
+
     }
 
-    cout << "\nThe play is valid" << endl;
+    vector<string> challengedWords;
+    challengedWords.reserve(wordNo);
+
+    cout << "Enter words to be challenged: " << endl;
+    for (int i = 0; i < wordNo; i++) {
+        cout << "----> ";
+        string input;
+        cin >> input;
+        challengedWords.push_back(input);
+    }
+
+    bool playIsValid = true;
+
+    for ( string &wo: challengedWords) {
+        if (!isValidWord(wo)) {
+            playIsValid = false;
+            break;
+        }
+    }
+
+    if (playIsValid) {
+        cout << "\033[32m" << R"(
+`7MM"""Mq.`7MMF'            db   `YMM'   `MM'    `7MMF' .M"""bgd     `7MMF'   `7MF' db      `7MMF'      `7MMF'`7MM"""Yb.
+  MM   `MM. MM             ;MM:    VMA   ,V        MM  ,MI    "Y       `MA     ,V  ;MM:       MM          MM    MM    `Yb.
+  MM   ,M9  MM            ,V^MM.    VMA ,V         MM  `MMb.            VM:   ,V  ,V^MM.      MM          MM    MM     `Mb
+  MMmmdM9   MM           ,M  `MM     VMMP          MM    `YMMNq.         MM.  M' ,M  `MM      MM          MM    MM      MM
+  MM        MM      ,    AbmmmqMA     MM           MM  .     `MM         `MM A'  AbmmmqMA     MM      ,   MM    MM     ,MP
+  MM        MM     ,M   A'     VML    MM           MM  Mb     dM          :MM;  A'     VML    MM     ,M   MM    MM    ,dP'
+.JMML.    .JMMmmmmMMM .AMA.   .AMMA..JMML.       .JMML.P"Ybmmd"            VF .AMA.   .AMMA..JMMmmmmMMM .JMML..JMMmmmdP'
+)" << "\033[0m" << endl;
+    } else {
+        cout << "\033[31m" << R"(
+`7MM"""Mq.`7MMF'            db   `YMM'   `MM'    `7MMF' .M"""bgd     `7MMF'`7MN.   `7MF'`7MMF'   `7MF' db      `7MMF'      `7MMF'`7MM"""Yb.
+  MM   `MM. MM             ;MM:    VMA   ,V        MM  ,MI    "Y       MM    MMN.    M    `MA     ,V  ;MM:       MM          MM    MM    `Yb.
+  MM   ,M9  MM            ,V^MM.    VMA ,V         MM  `MMb.           MM    M YMb   M     VM:   ,V  ,V^MM.      MM          MM    MM     `Mb
+  MMmmdM9   MM           ,M  `MM     VMMP          MM    `YMMNq.       MM    M  `MN. M      MM.  M' ,M  `MM      MM          MM    MM      MM
+  MM        MM      ,    AbmmmqMA     MM           MM  .     `MM       MM    M   `MM.M      `MM A'  AbmmmqMA     MM      ,   MM    MM     ,MP
+  MM        MM     ,M   A'     VML    MM           MM  Mb     dM       MM    M     YMM       :MM;  A'     VML    MM     ,M   MM    MM    ,dP'
+.JMML.    .JMMmmmmMMM .AMA.   .AMMA..JMML.       .JMML.P"Ybmmd"      .JMML..JML.    YM        VF .AMA.   .AMMA..JMMmmmmMMM .JMML..JMMmmmdP'
+)" << "\033[0m" << endl;
+    }
 
     waitForQuitKey();
-    return true;
+    clearScreen();
 }
 

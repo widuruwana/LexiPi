@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "../include/dict.h"
 #include "../modes/PvP/pvp.h"
 #include "../modes/Home/home.h"
 
@@ -14,6 +15,8 @@ int main() {
 
         char mode;
 
+        loadDictionary("build/Release/data/csw24.txt");
+
         cout << "=========================================\n";
         cout << "           Welcome to LEXI_PI\n";
         cout << "         Terminal Crossword Game\n";
@@ -22,7 +25,7 @@ int main() {
 
         cout << "(1) Player vs Player\n"
              << "(2) Player vs AI\n"
-             << "(3) Word Judge\n"
+             << "(3) Word Wizard\n"
              << "(4) How to play\n"
              << "(5) About\n"
              << "(6) Quit\n"
