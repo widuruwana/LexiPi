@@ -52,6 +52,10 @@ bool loadDictionary(const string &filename) {
 
     for (const auto& prefix : searchPaths) {
         string fullPath = prefix + filename;
+
+        in.clear();
+        in.close();
+
         in.open(fullPath);
         if (in.is_open()) {
             foundPath = fullPath;
@@ -69,6 +73,10 @@ bool loadDictionary(const string &filename) {
     }
 
     string word;
+
+    // C++ Learning
+    // Reads the next whitespace-delimited token from the file "in", stores it in word,
+    //-and continues until the file ends or read fails.
     while (in >> word) {
         for (char &c : word) {
             c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
