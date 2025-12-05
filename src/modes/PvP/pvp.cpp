@@ -103,6 +103,10 @@ void runPvP() {
         // Passing
         if (choice == 'P') {
             passTurn(players, currentPlayer, canChallenge, lastMove);
+            printBoard(bonusBoard, letters);
+            cout << "Scores: Player 1 = " << players[0].score << " | Player 2 = " << players[1].score << endl;
+            cout << "Rack:\n";
+            printRack(players[currentPlayer].rack);
             continue;
         }
 
