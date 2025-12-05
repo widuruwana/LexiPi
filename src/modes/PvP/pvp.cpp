@@ -1,11 +1,11 @@
 #include <iostream>
 
-#include "../../include/board.h"
-#include "../../include/move.h"
-#include "../../include/tiles.h"
-#include "../../include/rack.h"
-#include "../../include/dict.h"
-#include "../../include/choices.h"
+#include "../../../include/board.h"
+#include "../../../include/move.h"
+#include "../../../include/tiles.h"
+#include "../../../include/rack.h"
+#include "../../../include/dict.h"
+#include "../../../include/choices.h"
 
 using namespace std;
 

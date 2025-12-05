@@ -1,8 +1,8 @@
 #include <iostream>
 
 #include "../include/dict.h"
-#include "../modes/PvP/pvp.h"
-#include "../modes/Home/home.h"
+#include "../include/modes/PvP/pvp.h"
+#include "../include/modes/Home/home.h"
 
 using namespace std;
 
@@ -15,7 +15,7 @@ int main() {
 
         char mode;
 
-        loadDictionary("build/Release/data/csw24.txt");
+        loadDictionary("csw24.txt");
 
         cout << "=========================================\n";
         cout << "           Welcome to LEXI_PI\n";

@@ -1,12 +1,12 @@
 #include <iostream>
 #include <limits>
 
-#include "home.h"
+#include "../../../include/modes/Home/home.h"
 
-#include "../../include/board.h"
-#include "../../include/tiles.h"
-#include "../../include/rack.h"
-#include "../../include/dict.h"
+#include "../../../include/board.h"
+#include "../../../include/tiles.h"
+#include "../../../include/rack.h"
+#include "../../../include/dict.h"
 
 using namespace std;
 
@@ -94,7 +94,7 @@ void showAboutScreen() {
     all those rare educational and actually worth while social media reels and pile it up to a 25ish amount of papers
     and ship one out every single week that would basically be that newspaper. But I was too lazy to actually fill it
     up, partially because it was in Sinhala, a language that would be a nightmare for a native english speaker to learn
-    to write but to be fair the performance of the locals puts our forfathers to shame.
+    to write but to be fair the performance of the locals puts our forefathers to shame.
 
     The game that starts with the letter S (for legal reasons I cannot mention its name) was introduced to me by a
     friend who is happened to be a prime nerd phenotype. I didnt think much of it when I heard its about making silly
