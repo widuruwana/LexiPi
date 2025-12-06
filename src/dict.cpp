@@ -6,7 +6,12 @@
 #include <fstream>
 #include <cctype>
 #include <filesystem>
-#include <windows.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <unistd.h>
+#endif
 
 #include "../include/board.h"
 #include "../include/move.h"
