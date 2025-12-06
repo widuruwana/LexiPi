@@ -20,7 +20,7 @@ int main() {
         cout << "=========================================\n";
         cout << "           Welcome to LEXI_PI\n";
         cout << "         Terminal Crossword Game\n";
-        cout << "               version 0.1\n";
+        cout << "               Version 0.1\n";
         cout << "=========================================\n\n";
 
         cout << "(1) Player vs Player\n"
