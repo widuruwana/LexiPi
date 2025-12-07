@@ -19,4 +19,6 @@ add_executable(scrabblePi src/board.cpp
         src/modes/PvP/pvp.cpp
         include/modes/PvP/pvp.h
         src/modes/Home/home.cpp
-        include/modes/Home/home.h)
+        include/modes/Home/home.h
+        src/controller.cpp
+        include/controller.h)

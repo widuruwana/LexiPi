@@ -5,6 +5,7 @@
 #include "../include/tiles.h"
 #include "../include/rack.h"
 #include "../include/dict.h"
+#include "../include/controller.h"
 
 #include <iostream>
 
@@ -22,7 +23,8 @@ bool handleEmptyRackEndGame(Board &bonusBoard,
                             LastMoveInfo &lastMove,
                             int &currentPlayer,
                             bool &canChallenge,
-                            bool &dictActive);
+                            bool &dictActive,
+                            PlayerController* controller);
 
 // Handle Pass command
 // - Increments players passCount
@@ -57,24 +59,10 @@ void showUnseenTiles(const TileBag &bag,
 bool handleQuit(const Player players[2], int currentPlayer);
 
 // handle rack command (swap/shuffle/exchange)
-void handleRackChoice(Board &bonusBoard,
-                      LetterBoard &letters,
-                      TileBag &bag,
-                      Player players[2],
-                      int &currentPlayer,
-                      bool &canChallenge,
-                      LastMoveInfo &lastMove);
+// DELETED: handleRackChoice
 
 // Handle playing a move
-void handleMoveChoice(Board &bonusBoard,
-                      LetterBoard &letters,
-                      BlankBoard &blanks,
-                      TileBag &bag,
-                      Player players[2],
-                      GameSnapshot &lastSnapShot,
-                      LastMoveInfo &lastMove,
-                      int &currentPlayer,
-                      bool &canChallenge);
+// DELETED: handleMoveChoice
 
 
 
