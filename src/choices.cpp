@@ -314,7 +314,7 @@ bool handleQuit(const Player players[2], int currentPlayer) {
     cout << "\nGame Over.\n";
 
     cout << "Player " << (currentPlayer + 1) << " Resigns from the game.\n"
-         << "Player " << ((1 - currentPlayer) + 1) << "Wins the game." << endl;
+         << "Player " << ((1 - currentPlayer) + 1) << " Wins the game." << endl;
 
     cout << "Final Scores:\n";
     cout << "Player 1: " << players[0].score << endl;
