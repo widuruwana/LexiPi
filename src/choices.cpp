@@ -312,10 +312,15 @@ bool handleQuit(const Player players[2], int currentPlayer) {
     }
 
     cout << "\nGame Over.\n";
+
+    cout << "Player " << (currentPlayer + 1) << " Resigns from the game.\n"
+         << "Player " << ((1 - currentPlayer) + 1) << "Wins the game." << endl;
+
     cout << "Final Scores:\n";
     cout << "Player 1: " << players[0].score << endl;
     cout << "Player 2: " << players[1].score << endl;
 
+    /*
     if (players[0].score > players[1].score) {
         cout << "Player 1 wins!\n";
     } else if (players[1].score > players[0].score) {
@@ -323,6 +328,7 @@ bool handleQuit(const Player players[2], int currentPlayer) {
     } else {
         cout << "Match is a tie!\n";
     }
+    */
 
     return true;
 }
