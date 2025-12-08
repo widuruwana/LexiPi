@@ -6,6 +6,7 @@
 #include "../../../include/rack.h"
 #include "../../../include/dict.h"
 #include "../../../include/choices.h"
+#include "../../../include/human_player.h"
 
 using namespace std;
 
@@ -29,10 +30,16 @@ void runPvP() {
         players[i].passCount = 0;
     }
 
-    int currentPlayer = 0; // 0 -> Player 1, 1 -> Player 2
+    // Setting up controllers
+    PlayerController *controllers[2];
+    controllers[0] = new HumanPlayer();
+    controllers[1] = new HumanPlayer();
+
+    int currentPlayer = 0;
 
     GameSnapshot lastSnapShot;
     LastMoveInfo lastMove;
+
     lastMove.exists = false;
     lastMove.playerIndex = -1;
 
@@ -73,100 +80,88 @@ void runPvP() {
                                    dictActive)) {
             //Game over
             break;
-                                   }
-
-        cout << "\nCommands (Player " << currentPlayer + 1 << "):\n"
-             << " m -> play a move\n"
-             << " r -> rack command (swap/shuffle/exchange)\n"
-             << " c -> challenge last word\n"
-             << " b -> show board\n"
-             << " t -> show unseen tiles\n"
-             << " p -> pass\n"
-             << " q -> quit\n"
-             << "Enter Choice: ";
-
-        string input;
-
-        if (!(cin >> input)) {
-            break;
         }
 
-        if (input.size() != 1) {
-            cout << "Invalid input. Please enter only one character\n";
-            continue;
-        }
+        // Getting the move from the controller
+        Move move = controllers[currentPlayer]->getMove(bonusBoard,
+                                                        letters,
+                                                        blanks,
+                                                        bag,
+                                                        players[currentPlayer],
+                                                        players[1 - currentPlayer],
+                                                        currentPlayer + 1);
 
-        char choice = input[0];
-
-        choice = static_cast<char>(toupper(static_cast<unsigned char>(choice)));
-
-        // Passing
-        if (choice == 'P') {
+        // Executing the move
+        if (move.type == MoveType::PASS) {
             passTurn(players, currentPlayer, canChallenge, lastMove);
             printBoard(bonusBoard, letters);
-            cout << "Scores: Player 1 = " << players[0].score << " | Player 2 = " << players[1].score << endl;
-            cout << "Rack:\n";
+            cout << "Scores: Player 1 = " << players[0].score
+                 << " | Player 2 = " << players[1].score << endl;
             printRack(players[currentPlayer].rack);
             continue;
         }
 
-        if (choice == 'B') {
-            printBoard(bonusBoard, letters);
-            cout << "Scores: Player 1 = " << players[0].score << " | Player 2 = " << players[1].score << endl;
-            cout << "Rack:\n";
-            printRack(players[currentPlayer].rack);
-            continue;
-        }
-
-        if (choice == 'T') {
-            showUnseenTiles(bag, players, currentPlayer);
-            continue;
-        }
-
-        if (choice == 'C') {
-            challengeMove(bonusBoard,
-                          letters,
-                          blanks,
-                          bag,
-                          players,
-                          lastSnapShot,
-                          lastMove,
-                          currentPlayer,
-                          canChallenge,
-                          dictActive);
-            continue;
-        }
-
-        if (choice == 'Q') {
+        if (move.type == MoveType::QUIT) {
             if (handleQuit(players, currentPlayer)) {
                 break;
             }
             continue;
         }
-        if (choice == 'R') {
-            handleRackChoice(bonusBoard,
-                             letters,
-                             bag,
-                             players,
-                             currentPlayer,
-                             canChallenge,
-                             lastMove);
+
+        if (move.type == MoveType::CHALLENGE) {
+            challengeMove(bonusBoard, letters, blanks, bag, players,
+                          lastSnapShot, lastMove, currentPlayer, canChallenge, dictActive);
             continue;
         }
 
-        if (choice == 'M') {
-            handleMoveChoice(bonusBoard,
-                             letters,
-                             blanks,
-                             bag,
-                             players,
-                             lastSnapShot,
-                             lastMove,
-                             currentPlayer,
-                             canChallenge);
-            continue;
-        }
+        if (move.type == MoveType::PLAY) {
 
-        cout << "Unknown Command\n";
+            bool success = executePlayMove(bonusBoard, letters, blanks, bag, players,
+                                           players[currentPlayer], move, lastSnapShot);
+
+            if (success) {
+                lastMove.exists = true;
+                lastMove.playerIndex = currentPlayer;
+                lastMove.startRow = move.row;
+                lastMove.startCol = move.col;
+                lastMove.horizontal = move.horizontal;
+                canChallenge = true;
+
+                printBoard(bonusBoard, letters);
+                cout << "Scores: Player 1 = " << players[0].score
+                     << " | Player 2 = " << players[1].score << endl;
+
+                currentPlayer = 1 - currentPlayer;
+                cout << "\nNow it's Player " << (currentPlayer + 1) << "'s turn" << endl;
+                printRack(players[currentPlayer].rack);
+            }
+        }
     }
+
+    delete controllers[0];
+    delete controllers[1];
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -9,6 +9,70 @@
 #include "../include/dict.h"
 #include "../include/choices.h"
 
+using namespace std;
+
+// Show unseen tiles
+void showUnseenTiles(const TileBag &bag, const Player players[2], int currentPlayer) {
+
+    int opponent = 1 - currentPlayer;
+    bool revealOpponent = (static_cast<int>(bag.size()) <= 7);
+
+    printTileBag(bag, players[opponent].rack, revealOpponent);
+}
+
+bool executePlayMove(Board &bonusBoard,
+                     LetterBoard &letters,
+                     BlankBoard &blanks,
+                     TileBag &bag,
+                     Player players[2],
+                     Player currentPlayer,
+                     const Move &move,
+                     GameSnapshot &lastSnapShot) {
+
+    // Taking an snapshot before applying final word
+    lastSnapShot.letters = letters;
+    lastSnapShot.blanks = blanks;
+    lastSnapShot.bag = bag;
+    lastSnapShot.players[0] = players[0];
+    lastSnapShot.players[1] = players[1];
+
+    MoveResult result = playWord(
+        bonusBoard,
+        letters,
+        blanks,
+        bag,
+        currentPlayer.rack,
+        move.row,
+        move.col,
+        move.horizontal,
+        move.word
+    );
+
+    if (result.success) {
+        // Should not normally happen since preview succeeded
+        cout << "Move played. Score: " << result.score << endl;
+        currentPlayer.score += result.score;
+        return true;
+    } else {
+        cout << "Unexpected error applying move: " << result.errorMessage << endl;
+        return false;
+    }
+}
+
+bool executeExchangeMove(TileBag &bag, Player &player, const Move &move) {
+    bool ok = exchangeRack(player.rack, move.exchangeLetters, bag) ;
+
+    if (ok) {
+        cout << "Exchange successful. Passing the turn. \n";
+        return true;
+    } else {
+        cout << "Exchange failed (Not enough tiles).\n";
+        return false;
+    }
+}
+
+
+
 bool handleSixPassEndGame(Player players[2]) {
 
     if (players[0].passCount < 3 || players[1].passCount < 3) {
@@ -285,15 +349,6 @@ void challengeMove(Board &bonusBoard,
     }
 }
 
-// Show unseen tiles
-void showUnseenTiles(const TileBag &bag, const Player players[2], int currentPlayer) {
-
-    int opponent = 1 - currentPlayer;
-    bool revealOpponent = (static_cast<int>(bag.size()) <= 7);
-
-    printTileBag(bag, players[opponent].rack, revealOpponent);
-}
-
 // Handle Resignation
 bool handleQuit(const Player players[2], int currentPlayer) {
 
@@ -333,6 +388,7 @@ bool handleQuit(const Player players[2], int currentPlayer) {
     return true;
 }
 
+/*
 void handleRackChoice(Board &bonusBoard,
                       LetterBoard &letters,
                       TileBag &bag,
@@ -373,7 +429,9 @@ void handleRackChoice(Board &bonusBoard,
         cout << "\nInvalid rack command\n";
     }
 }
+*/
 
+/*
 void handleMoveChoice(Board &bonusBoard,
                       LetterBoard &letters,
                       BlankBoard &blanks,
@@ -458,13 +516,13 @@ void handleMoveChoice(Board &bonusBoard,
 
     cout << "\nProposed move score (main word + cross words): " << preview.score << endl;
 
-    /*
+
     cout << "\nPreview board:\n";
     printBoard(bonusBoard, previewLetters);
 
     cout << "\nPreview rack:\n";
     printRack(previewRack);
-    */
+
 
     cout << "\nConfirm move? (y/n): ";
     char confirm;
@@ -526,6 +584,8 @@ void handleMoveChoice(Board &bonusBoard,
 
     printRack(players[currentPlayer].rack);
 }
+
+*/
 
 
 
