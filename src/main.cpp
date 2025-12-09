@@ -3,6 +3,7 @@
 #include "../include/dict.h"
 #include "../include/modes/PvP/pvp.h"
 #include "../include/modes/Home/home.h"
+#include "../include/modes/Test/test_mode.h"
 
 using namespace std;
 
@@ -29,6 +30,7 @@ int main() {
              << "(4) How to play\n"
              << "(5) About\n"
              << "(6) Quit\n"
+             << "(7) Test Mode\n"
              << "Please select an option: ";
         cin >> mode;
 
@@ -46,6 +48,9 @@ int main() {
             showAboutScreen();
         } else if (mode == '6') {
             cout << " May your racks be fruitful and your bingos plentiful!\n" << endl;
+            break;
+        } else if (mode == '7') {
+            runTestMode();
             break;
         }
     }

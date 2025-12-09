@@ -15,7 +15,7 @@ typedef struct {
 using TileBag = vector<Tile>;
 
 // Create the standard 100-tile english scrabble bag
-TileBag createStandardTileBag();
+TileBag createStandardTileBag(bool arranged = false);
 
 // Print the tile bag
 void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool revealOpponentRack);

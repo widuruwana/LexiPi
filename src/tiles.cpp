@@ -134,7 +134,7 @@ void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool rev
 
 
 
-TileBag createStandardTileBag() {
+TileBag createStandardTileBag(bool arranged) {
     TileBag bag;
 
     /*C++ LEARNING
@@ -145,59 +145,90 @@ TileBag createStandardTileBag() {
         count -> How many of those tiles to be added
         ex: addTiles('A', 1, 9) means 9 tiles of letter A each worth 1 point are added to the bag.
         bag.push_back(Tile{'A', 1}); x 9 times
-     */
+    */
     auto addTiles = [&bag](char letter, int points, int count) {
         for (int i = 0; i < count; i++) {
             bag.push_back(Tile{letter, points});
         }
     };
 
-    // Letter distribution:
-    // E×12; A,I×9; O×8; N,R,T×6; L,S,U,D×4; G×3;
-    // B,C,M,P,F,H,V,W,Y×2; K,J,X,Q,Z×1; blanks×2
+    if (!arranged) {
+        // Standard distribution
+        addTiles('E', 1, 12);
+        addTiles('A', 1, 9);
+        addTiles('I', 1,  9);
+        addTiles('O', 1,  8);
+        addTiles('N', 1,  6);
+        addTiles('R', 1,  6);
+        addTiles('T', 1,  6);
+        addTiles('L', 1,  4);
+        addTiles('S', 1,  4);
+        addTiles('U', 1,  4);
+        addTiles('D', 2, 4);
+        addTiles('G', 2, 3);
+        addTiles('B', 3, 2);
+        addTiles('C', 3, 2);
+        addTiles('M', 3, 2);
+        addTiles('P', 3, 2);
+        addTiles('F', 4, 2);
+        addTiles('H', 4, 2);
+        addTiles('V', 4, 2);
+        addTiles('W', 4, 2);
+        addTiles('Y', 4, 2);
+        addTiles('K', 5, 1);
+        addTiles('J', 8, 1);
+        addTiles('X', 8, 1);
+        addTiles('Q',10, 1);
+        addTiles('Z',10, 1);
+        addTiles('?', 0, 2);
+    } else {
+        // Arranged for Test Mode
+        // P1 needs: H, E, L, L, O, A, A (drawn last)
+        // P2 needs: W, R, L, D, I, I, I (drawn second to last)
+        
+        // Add everything else first (reduced counts)
+        addTiles('E', 1, 11); // 12-1
+        addTiles('A', 1, 7);  // 9-2
+        addTiles('I', 1, 6);  // 9-3
+        addTiles('O', 1, 7);  // 8-1
+        addTiles('N', 1, 6);
+        addTiles('R', 1, 5);  // 6-1
+        addTiles('T', 1, 6);
+        addTiles('L', 1, 1);  // 4-3
+        addTiles('S', 1, 4);
+        addTiles('U', 1, 4);
+        addTiles('D', 2, 3);  // 4-1
+        addTiles('G', 2, 3);
+        addTiles('B', 3, 2);
+        addTiles('C', 3, 2);
+        addTiles('M', 3, 2);
+        addTiles('P', 3, 2);
+        addTiles('F', 4, 2);
+        addTiles('H', 4, 1);  // 2-1
+        addTiles('V', 4, 2);
+        addTiles('W', 4, 1);  // 2-1
+        addTiles('Y', 4, 2);
+        addTiles('K', 5, 1);
+        addTiles('J', 8, 1);
+        addTiles('X', 8, 1);
+        addTiles('Q',10, 1);
+        addTiles('Z',10, 1);
+        addTiles('?', 0, 2);
 
-    //1-point letters
-    addTiles('E', 1, 12);
-    addTiles('A', 1, 9);
-    addTiles('I', 1,  9);
-    addTiles('O', 1,  8);
-    addTiles('N', 1,  6);
-    addTiles('R', 1,  6);
-    addTiles('T', 1,  6);
-    addTiles('L', 1,  4);
-    addTiles('S', 1,  4);
-    addTiles('U', 1,  4);
+        // Add P2's tiles (drawn second)
+        addTiles('W', 4, 1);
+        addTiles('R', 1, 1);
+        addTiles('L', 1, 1);
+        addTiles('D', 2, 1);
+        addTiles('I', 1, 3);
 
-    // 2-point letters
-    addTiles('D', 2, 4);
-    addTiles('G', 2, 3);
-
-    // 3-point letters
-    addTiles('B', 3, 2);
-    addTiles('C', 3, 2);
-    addTiles('M', 3, 2);
-    addTiles('P', 3, 2);
-
-    // 4-point letters
-    addTiles('F', 4, 2);
-    addTiles('H', 4, 2);
-    addTiles('V', 4, 2);
-    addTiles('W', 4, 2);
-    addTiles('Y', 4, 2);
-
-    // 5-point letter
-    addTiles('K', 5, 1);
-
-    // 8-point letters
-    addTiles('J', 8, 1);
-    addTiles('X', 8, 1);
-
-    // 10-point letters
-    addTiles('Q',10, 1);
-    addTiles('Z',10, 1);
-
-    // Blanks: use '?' as the letter, 0 points
-    addTiles('?', 0, 2);
+        // Add P1's tiles (drawn first)
+        addTiles('H', 4, 1);
+        addTiles('E', 1, 1);
+        addTiles('L', 1, 2);
+        addTiles('O', 1, 1);
+        addTiles('A', 1, 2);
+    }
 
     return bag;
 }
