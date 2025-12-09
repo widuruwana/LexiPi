@@ -12,8 +12,6 @@ public:
                  const Player &opponent,
                  int playerNum) override;
 
-    Move getEndGameDecision() override;
-
 private:
     Move handleRackLogic(TileRack &rack, TileBag &bag);
     Move parseMoveInput(const Board &bonusBoard,

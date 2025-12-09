@@ -128,9 +128,9 @@ bool handleEmptyRackEndGame(Board &bonusBoard,
 
     int emptiedPlayer = lastMove.playerIndex; // player who finished all the tiles.
 
-    Move decision = controller->getEndGameDecision();
+    string command = controller->getEndGameDecision();
 
-    if (decision.type == MoveType::PASS) {
+    if (command == "PASS") {
 
         cout << "Player " << (currentPlayer + 1) << " passes their turn." << endl;
 
@@ -160,7 +160,7 @@ bool handleEmptyRackEndGame(Board &bonusBoard,
         return true;
     }
 
-    if (decision.type == MoveType::CHALLENGE) {
+    if (command == "CHALLENGE") {
         challengeMove(bonusBoard,
                         letters,
                         blanks,

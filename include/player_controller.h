@@ -21,6 +21,4 @@ public:
                           const Player &me,
                           const Player &opponent,
                           int playerNum) = 0;
-
-    virtual Move getEndGameDecision() = 0;
 };

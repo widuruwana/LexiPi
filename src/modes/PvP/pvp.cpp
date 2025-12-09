@@ -26,13 +26,10 @@ void runPvP() {
     shuffleTileBag(bag);
 
     Player players[2];
-    PlayerController* controllers[2];
-
     for (int i=0; i < 2; i++) {
         drawTiles(bag, players[i].rack, 7);
         players[i].score = 0;
         players[i].passCount = 0;
-        controllers[i] = new HumanPlayer();
     }
 
     int currentPlayer = 0; // 0 -> Player 1, 1 -> Player 2
