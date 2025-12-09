@@ -8,8 +8,6 @@
 #include "../include/controller.h"
 
 #include <iostream>
-#include <string>
-#include <vector>
 
 using namespace std;
 
@@ -38,9 +36,6 @@ void passTurn(Player players[2], int &currentPlayer, bool &canChallenge, LastMov
 // unseen tiles are bag + opponent rack, reveal opponenet rack when bag <= 7 (Tile tracking)
 void showTileSet(const TileBag &bag, const Player players[2], int currentPlayer);
 
-// Show unseen tiles
-void showUnseenTiles(const TileBag &bag, const Player players[2], int currentPlayer);
-
 // Handle a CHALLENGE command;
 // Uses lastSnapshot to undo the last move on successful challenge.
 // Does NOT change current player.
@@ -55,36 +50,19 @@ void challengeMove(Board &bonusBoard,
                    bool &canChallenge,
                    bool &dictActive);
 
+// Show unseen tiles
+void showUnseenTiles(const TileBag &bag,
+                     const Player players[2],
+                     int currentPlayer);
+
 // Handle resignation
 bool handleQuit(const Player players[2], int currentPlayer);
 
-/*
 // handle rack command (swap/shuffle/exchange)
 // DELETED: handleRackChoice
 
 // Handle playing a move
-void handleMoveChoice(Board &bonusBoard,
-                      LetterBoard &letters,
-                      BlankBoard &blanks,
-                      TileBag &bag,
-                      Player players[2],
-                      GameSnapshot &lastSnapShot,
-                      LastMoveInfo &lastMove,
-                      int &currentPlayer,
-                      bool &canChallenge);
-*/
-
-bool executePlayMove(Board &bonusBoard,
-                     LetterBoard &letters,
-                     BlankBoard &blanks,
-                     TileBag &bag,
-                     Player players[2],
-                     Player currentPlayer,
-                     const Move &move,
-                     GameSnapshot &lastSnapShot);
-
-bool executeExchangeMove(TileBag &bag, Player &players, const Move &move);
-
+// DELETED: handleMoveChoice
 
 
 

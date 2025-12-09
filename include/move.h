@@ -21,39 +21,6 @@ struct MoveResult {
     string errorMessage;
 };
 
-enum class MoveType {
-    PLAY, // Placing a word
-    PASS, // Passing a turn
-    EXCHANGE, // Swap tiles with bag
-    CHALLENGE, // Challenge previous move
-    QUIT, // Resign
-    NONE // (Internal Use)
-};
-
-// To hold the move data
-struct Move {
-    MoveType type = MoveType::NONE;
-
-    // For playing
-    string word; // Playing word/exchanging tiles
-    int row = -1;
-    int col = -1;
-    bool horizontal = true;
-
-    // For exchange
-    string exchangeLetters;
-
-    static Move Pass() { return {MoveType::PASS}; }
-    static Move Quit() { return {MoveType::QUIT}; }
-    static Move Challenge() { return {MoveType::CHALLENGE}; }
-    static Move Play(int r, int c, bool h, string w) {
-        return {MoveType::PLAY, w, r, c, h};
-    }
-    static Move Exchange(string tiles) {
-        return {MoveType::EXCHANGE, " ", -1, -1, true, tiles};
-    }
-};
-
 // Play a word using the tiles in the rack.
 //
 // - bonusBoard: fixed DL/TL/DW/TW layout
