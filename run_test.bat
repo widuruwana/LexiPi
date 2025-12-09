@@ -1,0 +1,1 @@
+echo 7 | build\Debug\scrabblePi.exe
