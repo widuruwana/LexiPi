@@ -137,7 +137,8 @@ string extractMainWord(const LetterBoard &letters, int row, int col, bool horizo
 }
 
 // Returns a list of all the cross words formed.
-vector<string> crossWordList(const LetterBoard &letters, int row, int col, bool mainHorizontal) {
+vector<string> crossWordList(const LetterBoard &letters, const LetterBoard &oldLetters,
+                             int row, int col, bool mainHorizontal) {
     vector<string> words;
 
     // perpendicular direction
@@ -152,7 +153,15 @@ vector<string> crossWordList(const LetterBoard &letters, int row, int col, bool 
     int c = col;
 
     while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && letters[r][c] != ' ') {
-        // First check if there is any neighbor in that perpendicular direction
+
+        // If this tile existed on the old board, skip it
+        if (oldLetters[r][c] != ' ') {
+            r+= mainDr;
+            c+= mainDc;
+            continue;
+        }
+
+        // Check if there is any neighbor in that perpendicular direction
         bool hasNeighbor = false;
 
         // checking either side

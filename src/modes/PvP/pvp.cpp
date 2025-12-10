@@ -115,6 +115,27 @@ void runPvP() {
             continue;
         }
 
+        if (move.type == MoveType::EXCHANGE) {
+            bool success = executeExchangeMove(bag, players[currentPlayer], move);
+
+            if (success) {
+                // Exchange counts as a turn
+                // Reset challenge right
+                lastMove.exists = false;
+                canChallenge = false;
+
+                printBoard(bonusBoard, letters);
+                cout << "Scores: Player 1 = " << players[0].score
+                     << " | Player 2 = " << players[1].score << endl;
+
+                // switch turn
+                currentPlayer = 1 - currentPlayer;
+                cout << "\nPlayer " << (currentPlayer + 1) << "'s Rack" << endl;
+                printRack(players[currentPlayer].rack);
+            }
+            continue;
+        }
+
         if (move.type == MoveType::PLAY) {
 
             bool success = executePlayMove(bonusBoard, letters, blanks, bag, players,

@@ -79,7 +79,7 @@ bool executePlayMove(Board &bonusBoard,
                      BlankBoard &blanks,
                      TileBag &bag,
                      Player players[2],
-                     Player currentPlayer,
+                     Player &currentPlayer,
                      const Move &move,
                      GameSnapshot &lastSnapShot);
 

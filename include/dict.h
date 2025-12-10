@@ -37,7 +37,8 @@ bool loadDictionary(const string &filename);
 bool isValidWord(const string &word);
 
 // returns the list of crosswords formed from main word, to be judged.
-vector<string> crossWordList(const LetterBoard &letters, int row, int col, bool mainHorizontal);
+vector<string> crossWordList(const LetterBoard &letters, const LetterBoard &oldLetters,
+                             int row, int col, bool mainHorizontal);
 
 // Get the full word from the board (for challenging).
 string extractMainWord(const LetterBoard &letters, int row, int col, bool horizontal);

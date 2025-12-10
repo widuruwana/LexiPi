@@ -262,8 +262,8 @@ void challengeMove(Board &bonusBoard,
                             lastMove.startCol, lastMove.horizontal);
 
     // Get the list of cross words from the board.
-    vector<string> crossWords = crossWordList(letters, lastMove.startRow,
-                            lastMove.startCol, lastMove.horizontal);
+    vector<string> crossWords = crossWordList(letters, lastSnapShot.letters,
+                                lastMove.startRow, lastMove.startCol, lastMove.horizontal);
 
     if (challengedWord.empty()) {
         cout << "No word found to challenge\n";
@@ -334,21 +334,6 @@ void challengeMove(Board &bonusBoard,
 
 // Handle Resignation
 bool handleQuit(const Player players[2], int currentPlayer) {
-
-    // Confirmation is now handled by the controller before returning "QUIT"
-    // But wait, the controller returns "QUIT" if the user confirms?
-    // The plan says: "Refactor handleQuit to only handle the logic of resigning (scoring/printing), removing the input confirmation (moved to controller)."
-    // However, my HumanController implementation of "QUIT" does NOT ask for confirmation.
-    // It just returns "QUIT" if 'q' is pressed.
-    // The original code asked for confirmation.
-    // I should probably add confirmation to HumanController::getMove for 'q'.
-    // But for now, let's assume the controller returns QUIT only if it really means it.
-    // Wait, I missed adding confirmation in HumanController.
-    // I will fix HumanController later if needed, or assume 'q' is instant quit for now?
-    // The prompt says: "Handles user interaction for each option... confirmation before returning a PLAY command".
-    // It doesn't explicitly say confirmation for QUIT in controller, but it says "removing the input confirmation (moved to controller)".
-    // So I should have moved it.
-    // I'll update handleQuit here to just do the resignation logic.
 
     cout << "\nGame Over.\n";
 
