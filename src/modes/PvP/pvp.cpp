@@ -50,7 +50,7 @@ void runPvP() {
 
     bool dictActive = true;
 
-    if (!loadDictionary("build/Release/data/csw24.txt")) {
+    if (!loadDictionary("csw24.txt")) {
         cout << "WARNING: Dictionary not loaded, challenge feature will not work.\n";
         dictActive = false;
     }
