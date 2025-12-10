@@ -5,7 +5,7 @@
 #include "../include/tiles.h"
 #include "../include/rack.h"
 #include "../include/dict.h"
-#include "../include/controller.h"
+#include "../include/player_controller.h"
 
 #include <iostream>
 #include <string>

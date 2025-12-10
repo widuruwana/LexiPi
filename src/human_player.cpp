@@ -103,6 +103,34 @@ Move HumanPlayer::getMove(const Board &bonusBoard,
 
     }
 };
+Move HumanPlayer::getEndGameDecision() {
+    cout << "Your opponent played their last move\n"
+         << "You can either PASS or CHALLENGE!" << endl
+         << " p -> pass\n"
+         << " c -> challenge last word\n"
+         << "Enter Choice: ";
+
+    while (true) {
+        string input;
+        if ((!(cin >> input)) || (input.size() != 1)) {
+            cout << "Invalid input. Please enter one character (P/C)\n";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            continue;
+        }
+
+        char choice = static_cast<char>(toupper(static_cast<unsigned char>(input[0])));
+
+        if (choice == 'P') {
+            return Move::Pass();
+        }
+        if (choice == 'C') {
+            return Move::Challenge();
+        }
+
+        cout << "Invalid choice. Enter P to pass or C to challenge\n";
+    }
+}
 
 Move HumanPlayer::handleRackLogic(TileRack &rack, TileBag &bag) {
 
