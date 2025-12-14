@@ -18,6 +18,7 @@
 #include "../include/tiles.h"
 #include "../include/rack.h"
 #include "../include/dict.h"
+#include "../include/dawg.h"
 
 using namespace std;
 
@@ -77,25 +78,34 @@ bool loadDictionary(const string &filename) {
         return false;
     }
 
+    gDictionary.clear();
+    vector<string> wordList; // temp list
+
     string word;
 
     // C++ Learning
     // Reads the next whitespace-delimited token from the file "in", stores it in word,
     //-and continues until the file ends or read fails.
     while (in >> word) {
+
+        // Normalize the word
+        string cleanWord;
         for (char &c : word) {
-            c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+            if (isalpha(c)) {
+                cleanWord += static_cast<char>(toupper(static_cast<unsigned char>(c)));
+            }
         }
-        gDictionary.insert(word);
+
+        if (!cleanWord.empty()) {
+            gDictionary.insert(cleanWord);
+            wordList.push_back(cleanWord); // storing
+        }
     }
 
     cout << "\nLoaded " << gDictionary.size() << " words from " << foundPath << "\n";
 
-    /*
-    if (filename.substr(0, '.') == "csw24") {
-        cout << "Lexicon: CSW24";
-    }
-    */
+    // Passing the word list to DAWG compiler
+    gDawg.buildFromWordList(wordList);
 
     return true;
 }
