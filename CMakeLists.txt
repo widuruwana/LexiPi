@@ -27,4 +27,6 @@ add_executable(scrabblePi src/board.cpp
         src/dawg.cpp
         include/heuristics.h
         include/fast_constraints.h
-        src/fast_constraints.cpp)
+        src/fast_constraints.cpp
+        include/ai_player.h
+        src/ai_player.cpp)
