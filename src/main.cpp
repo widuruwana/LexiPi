@@ -3,6 +3,7 @@
 #include "../include/dict.h"
 #include "../include/modes/PvP/pvp.h"
 #include "../include/modes/Home/home.h"
+#include "../include/modes/PvE/pve.h"
 
 using namespace std;
 
@@ -20,7 +21,7 @@ int main() {
         cout << "=========================================\n";
         cout << "           Welcome to LEXI_PI\n";
         cout << "         Terminal Crossword Game\n";
-        cout << "               Version 0.1\n";
+        cout << "               Version 0.2\n";
         cout << "=========================================\n\n";
 
         cout << "(1) Player vs Player\n"
@@ -36,9 +37,10 @@ int main() {
             runPvP();
             break;
         } else if (mode == '2') {
-            cout << " Under Construction \n" << endl;
+            runPvE();
+            break;
         } else if (mode == '3') {
-            string word = "XI";
+            string word = " ";
             wordWizard(word);
         } else if (mode == '4') {
             showHowToPlayScreen();

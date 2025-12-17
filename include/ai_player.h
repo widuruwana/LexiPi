@@ -18,16 +18,30 @@ struct MoveCandidate {
 
 class AIPlayer : public PlayerController {
 public:
-    AIPlayer(string name) : PlayerController(name) {};
+    AIPlayer() = default;
+    virtual ~AIPlayer() = default;
 
     // Main entry point called by the game loop
-    Move getMove(const Board &board, const TileRack &rack) override;
+    Move getMove(const Board &bonusBoard,
+                 const LetterBoard &letters,
+                 const BlankBoard &blankBoard,
+                 const TileBag &bag,
+                 const Player &me,
+                 const Player &opponent,
+                 int PlayerNum) override;
+
+    // Placeholder for now (required by pure virtual)
+    Move getEndGameDecision() override;
 
 private:
     vector <MoveCandidate> candidates;
 
+    // Recursion state helpers
+    int currentRow;
+    bool currentIsHorizontal;
+
     // The solver functions
-    void findAllMoves(const Board& board, const TileRack &rack);
+    void findAllMoves(const LetterBoard &letters, const TileRack &rack);
 
     void solveRow(int rowIdx, const LetterBoard &letters, const TileRack &rack, bool isHorizontal);
 

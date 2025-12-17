@@ -29,4 +29,6 @@ add_executable(scrabblePi src/board.cpp
         include/fast_constraints.h
         src/fast_constraints.cpp
         include/ai_player.h
-        src/ai_player.cpp)
+        src/ai_player.cpp
+        include/modes/PvE/pve.h
+        src/modes/PvE/pve.cpp)
