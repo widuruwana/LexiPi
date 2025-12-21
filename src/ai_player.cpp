@@ -2,8 +2,10 @@
 #include "../include/heuristics.h" // For scoring
 #include <algorithm>
 #include <iostream>
+#include <chrono>
 
 using namespace std;
+using namespace std::chrono;
 
 // Helper to calculate the Rack Mask (which letters do we physically have?)
 uint32_t getRackMask(const string &rackStr) {
@@ -20,6 +22,46 @@ uint32_t getRackMask(const string &rackStr) {
     if (hasBlank) return 0xFFFFFFFF; // Blank can be anything
 
     return mask;
+}
+
+// Optimization: Prune the search space to boundingBox + 1
+struct SearchRange {
+    int minRow, maxRow, minCol, maxCol;
+};
+
+SearchRange getActiveBoardArea(const LetterBoard &letters) {
+    int minR = 14;
+    int maxR = 0;
+    int minC = 14;
+    int maxC = 0;
+
+    bool empty = true;
+
+    // 225 iterations that fits in L1 cache
+    for (int r = 0; r < 15; r++) {
+        for (int c = 0; c < 15; c++) {
+            if (letters[r][c] != ' ') {
+                if (r < minR) minR = r;
+                if (c < minC) minC = c;
+                if (r > maxR) maxR = r;
+                if (c > maxC) maxC = c;
+                empty = false;
+            }
+        }
+    }
+
+    if (empty) {
+        return {7, 7, 7, 7};
+    }
+
+    // Expand by one to include the "Inflence Zone" (parallel plays)
+    // Using min/max to ensure no going out of bounds.
+    return{
+        max(0, minR - 1),
+        max(14, maxR + 1),
+        max(0, maxC - 1),
+        max(14, maxC + 1)
+    };
 }
 
 AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove) {
@@ -66,6 +108,9 @@ Move AIPlayer::getMove(const Board &bonusBoard,
                        const Player &opponent,
                        int PlayerNum) {
 
+    // To measure the time spent processing each turn
+    auto startTime = high_resolution_clock::now();
+
     candidates.clear();
 
     // Extract the rack from player object
@@ -81,6 +126,10 @@ Move AIPlayer::getMove(const Board &bonusBoard,
 
     // 1. Find all possible moves using the LETTER BOARD ( ignore bonuses for logic )
     findAllMoves(letters, myRack);
+
+    // Stop the timer
+    auto stopTime = high_resolution_clock::now();
+    auto duration = duration_cast<microseconds>(stopTime - startTime); // Calculates in microsec
 
     // 2. Pick the best one
     if (candidates.empty()) {
@@ -103,6 +152,15 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     // We only send the tiles we are placing, not the full word.
     DifferentialMove engineMove = calculateEngineMove(letters, bestMove);
 
+    if (engineMove.row == -1 || engineMove.word.empty()) {
+        cout << "[AI] Error: Move exists, but its already on board and require no Tiles. Passing" << endl;
+        Move passMove;
+        passMove.type = MoveType::PASS;
+        return passMove;
+    }
+
+    // Print status
+    cout << "[AI] Found " << candidates.size() << " moves in " << duration.count() << " micro seconds." << endl;
     cout << "[AI] Play: " << bestMove.word
          << " (Send: " << engineMove.word << " @" << engineMove.row << "," << engineMove.col << ")"
          << " (" << bestMove.score << " est. pts)" << endl;
@@ -125,21 +183,25 @@ Move AIPlayer::getEndGameDecision() {
 }
 
 void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
-    // Pass 1: Horizontal Rows
-    for (int r = 0; r < 15; r++) {
+
+    // Calculate the bounding box
+    SearchRange range = getActiveBoardArea(letters);
+
+    // Horizontal Rows
+    for (int r = range.minRow; r <= range.maxRow; r++) {
         solveRow(r, letters, rack, true);
     }
 
-    // Pass 2: Verticle columns (transposed)
-    // we create a temporary transposed board to resure the same row-solving logic
+    // Verticle columns (transposed)
+    // DRY optimization. We rotate the board.
     LetterBoard transposed;
-    for (int r=0; r < 15; r++) {
+    for (int r = 0; r < 15; r++) {
         for (int c = 0; c < 15; c++) {
             transposed[c][r] = letters[r][c];
         }
     }
 
-    for (int c = 0; c < 15; c++) {
+    for (int c = range.minCol; c < range.maxCol; c++) {
         // When solving vertically, 'rowIdx' passed to solveRow is actually the COLUMN index
         solveRow(c, transposed, rack, false);
     }
