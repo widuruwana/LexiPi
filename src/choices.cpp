@@ -49,9 +49,11 @@ bool executePlayMove(Board &bonusBoard,
     );
 
     if (result.success) {
-        // Should not normally happen since preview succeeded
         cout << "Move played. Score: " << result.score << endl;
         currentPlayer.score += result.score;
+
+        players[0].passCount = 0;
+        players[1].passCount = 0;
         return true;
     } else {
         cout << "Unexpected error applying move: " << result.errorMessage << endl;

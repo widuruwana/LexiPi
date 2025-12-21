@@ -52,7 +52,8 @@ private:
     // The solver functions
     void findAllMoves(const LetterBoard &letters, const TileRack &rack);
 
-    void solveRow(int rowIdx, const LetterBoard &letters, const TileRack &rack, bool isHorizontal);
+    void solveRow(int rowIdx, const LetterBoard &letters,
+                  const TileRack &rack, bool isHorizontal, bool isEmptyBoard);
 
     // Recursive "Tunneling" function
     // nodeIdx: Current node in DAWG
@@ -67,5 +68,7 @@ private:
                          string currentWord,
                          string currentRack,
                          bool anchorFilled,
-                         const LetterBoard &letters);
+                         const LetterBoard &letters,
+                         bool isEmptyBoard,
+                         bool tilesPlaced);
 };

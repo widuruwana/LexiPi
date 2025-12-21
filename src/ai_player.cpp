@@ -27,6 +27,7 @@ uint32_t getRackMask(const string &rackStr) {
 // Optimization: Prune the search space to boundingBox + 1
 struct SearchRange {
     int minRow, maxRow, minCol, maxCol;
+    bool isEmpty; // track empty board state
 };
 
 SearchRange getActiveBoardArea(const LetterBoard &letters) {
@@ -51,7 +52,7 @@ SearchRange getActiveBoardArea(const LetterBoard &letters) {
     }
 
     if (empty) {
-        return {7, 7, 7, 7};
+        return {7, 7, 7, 7, true};
     }
 
     // Expand by one to include the "Inflence Zone" (parallel plays)
@@ -60,7 +61,8 @@ SearchRange getActiveBoardArea(const LetterBoard &letters) {
         max(0, minR - 1),
         max(14, maxR + 1),
         max(0, maxC - 1),
-        max(14, maxC + 1)
+        max(14, maxC + 1),
+        false
     };
 }
 
@@ -189,7 +191,7 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
 
     // Horizontal Rows
     for (int r = range.minRow; r <= range.maxRow; r++) {
-        solveRow(r, letters, rack, true);
+        solveRow(r, letters, rack, true, range.isEmpty);
     }
 
     // Verticle columns (transposed)
@@ -203,11 +205,12 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
 
     for (int c = range.minCol; c < range.maxCol; c++) {
         // When solving vertically, 'rowIdx' passed to solveRow is actually the COLUMN index
-        solveRow(c, transposed, rack, false);
+        solveRow(c, transposed, rack, false, range.isEmpty);
     }
 }
 
-void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters, const TileRack &rack, bool isHorizontal) {
+void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters,
+                        const TileRack &rack, bool isHorizontal, bool isEmptyBoard) {
 
     // STORE STATE for the recursion
     this->currentRow = rowIdx;
@@ -233,7 +236,7 @@ void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters, const TileRack &
         }
 
         recursiveSearch(gDawg.rootIndex, startCol, constraints, rackMask,
-           "", rackStr, false, letters);
+           "", rackStr, false, letters, isEmptyBoard, false);
     }
 }
 
@@ -244,10 +247,12 @@ void AIPlayer::recursiveSearch(int nodeIdx,
                                string currentWord,
                                string currentRack,
                                bool anchorFilled,
-                               const LetterBoard &letters) {
+                               const LetterBoard &letters,
+                               bool isEmptyBoard,
+                               bool tilesPlaced) {
     // Base case: out of bounds
     if (col >= 15) {
-        if (gDawg.nodes[nodeIdx].isEndOfWord && anchorFilled & currentWord.length() > 1) {
+        if (gDawg.nodes[nodeIdx].isEndOfWord && anchorFilled && tilesPlaced && currentWord.length() > 1) {
             int startCol = col - currentWord.length();
 
             // Coordinate fix
@@ -296,10 +301,19 @@ void AIPlayer::recursiveSearch(int nodeIdx,
         if (letters[this->currentRow][col] == letter) {
             // Yes: must use it. Anchor satisfied
             recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + letter, currentRack,
-                            true, letters);
+                            true, letters, isEmptyBoard, tilesPlaced);
         }
         else if (letters[this->currentRow][col] == ' ') {
             // No: Its empty. Play from the rack
+            // tilesPlaced become TRUE
+            // If board is empty, it satisfies anchor filled ONLY if it touches the center square (7, 7)
+            bool isCenter = (isEmptyBoard && this->currentRow == 7 && col ==7);
+
+            // Standard anchor logic (crossing an existing word)
+            bool isCross = (constraints.masks[col] != MASK_ANY);
+
+            bool newAnchor = anchorFilled || isCross || isCenter;
+
             size_t found = currentRack.find(letter);
             bool isBlank = (found == string::npos) && (currentRack.find('?') != string::npos);
 
@@ -308,28 +322,26 @@ void AIPlayer::recursiveSearch(int nodeIdx,
                 string nextRack = currentRack;
                 nextRack.erase(found, 1);
 
-                bool newAnchor = anchorFilled || (constraints.masks[col]) != MASK_ANY;
                 recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + letter,
-                                nextRack, newAnchor, letters);
+                                nextRack, newAnchor, letters, isEmptyBoard, true);
             } else if (isBlank) {
                 //Blank tile
                 string nextRack = currentRack;
                 size_t b = nextRack.find('?');
                 nextRack.erase(b, 1);
 
-                bool newAnchor = anchorFilled || (constraints.masks[col]) != MASK_ANY;
-
                 // Fix: Appending lowercase letter to indicate blank usage
                 char blankRep = tolower(letter);
+
                 recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + blankRep,
-                                nextRack, newAnchor, letters);
+                                nextRack, newAnchor, letters, isEmptyBoard, true);
             }
         }
     }
 
     // Stopping condition
     // If we form a valid word, try to save it.
-    if (gDawg.nodes[nodeIdx].isEndOfWord && anchorFilled && currentWord.length() > 1) {
+    if (gDawg.nodes[nodeIdx].isEndOfWord && anchorFilled && tilesPlaced && currentWord.length() > 1) {
         // We can only stop if next square is empty or out of bounds.
         // If the next square has a letters, we are forced to continue extending
         if (col == 15 || (col < 15 && letters[this->currentRow][col] == ' ')) {

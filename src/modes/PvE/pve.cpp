@@ -105,8 +105,6 @@ void runPvE() {
             printBoard(bonusBoard, letters);
             cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
 
-            // Switch Turn
-            currentPlayer = 1 - currentPlayer;
             if (currentPlayer == 0) {
                 cout << "\nYour Turn:" << endl;
                 printRack(players[currentPlayer].rack);
@@ -134,6 +132,9 @@ void runPvE() {
             if (success) {
                 lastMove.exists = false;
                 canChallenge = false;
+
+                players[currentPlayer].passCount++;
+
                 printBoard(bonusBoard, letters);
                 cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
 
@@ -166,11 +167,23 @@ void runPvE() {
                     cout << "\nYour Turn:" << endl;
                     printRack(players[currentPlayer].rack);
                 }
+            } else {
+                if (currentPlayer == 1) {
+                    cout << "[Critical Error] AI played an invalid move. Force passing to prevent an infinity loop\n";
+                    passTurn(players, currentPlayer, canChallenge, lastMove);
+                    if (currentPlayer == 0) {
+                        cout << "\nYour Turn:" << endl;
+                        printRack(players[currentPlayer].rack);
+                    }
+                } else {
+                    // Human can retry
+                    cout << "Invalid move. Try again.\n";
+                }
             }
         }
     }
 
-    // Clean uo
+    // Clean up
     delete controllers[0];
     delete controllers[1];
 }
