@@ -40,6 +40,15 @@ private:
     int currentRow;
     bool currentIsHorizontal;
 
+    // Helper struct for engine translation
+    struct DifferentialMove {
+        int row, col;
+        string word;
+    };
+
+    // Calculate the correct engine input (skip existing tiles, shifts start coord)
+    DifferentialMove calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove);
+
     // The solver functions
     void findAllMoves(const LetterBoard &letters, const TileRack &rack);
 
@@ -54,6 +63,7 @@ private:
     void recursiveSearch(int nodeIdx,
                          int col,
                          const RowConstraint &constraints,
+                         uint32_t rackMask,
                          string currentWord,
                          string currentRack,
                          bool anchorFilled,

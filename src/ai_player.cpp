@@ -5,6 +5,59 @@
 
 using namespace std;
 
+// Helper to calculate the Rack Mask (which letters do we physically have?)
+uint32_t getRackMask(const string &rackStr) {
+    uint32_t mask = 0;
+    bool hasBlank = false;
+    for (char c : rackStr) {
+        if (c == '?') {
+            hasBlank = true;
+        } else if (isalpha(c)) {
+            mask |= (1 << (toupper(c) - 'A'));
+        }
+    }
+    // If we have a blank, we can form any letter
+    if (hasBlank) return 0xFFFFFFFF; // Blank can be anything
+
+    return mask;
+}
+
+AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove) {
+
+    DifferentialMove diff;
+    diff.row = -1;
+    diff.col = -1;
+    diff.word = "";
+
+    int r = bestMove.row;
+    int c = bestMove.col;
+    int dr = bestMove.isHorizontal ? 0 : 1;
+    int dc = bestMove.isHorizontal ? 1 : 0;
+
+    // Scan for full word against the board.
+    for (char letter : bestMove.word) {
+        // Is the current square empty?
+        if (letters[r][c] == ' ') {
+            // Yes, we must place a tile here.
+
+            // If this is the first empty square. then this is "Engine start"
+            if (diff.row == -1 && diff.col == -1) {
+                diff.row = r;
+                diff.col = c;
+            }
+
+            // Add the letter to the string we send back to engine
+            diff.word += letter;
+        }
+
+        //advance to next board cell
+        r += dr;
+        c += dc;
+    }
+
+    return diff;
+}
+
 Move AIPlayer::getMove(const Board &bonusBoard,
                        const LetterBoard &letters,
                        const BlankBoard &blankBoard,
@@ -23,6 +76,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     for (const Tile& t: myRack) {
         rackStr += t.letter;
     }
+
     cout << "[AI] Cutie_Pi is thinking... (Rack: " << rackStr << ")" << endl;
 
     // 1. Find all possible moves using the LETTER BOARD ( ignore bonuses for logic )
@@ -36,7 +90,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         return passMove;
     }
 
-    // Sort by score (decending)
+    // Sort by score (descending)
     // Note to Self: in V1 we are using estimated scores (length * 10)
     std::sort(candidates.begin(), candidates.end(),
               [](const MoveCandidate &a, const MoveCandidate &b) {
@@ -44,15 +98,21 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     });
 
     const MoveCandidate &bestMove = candidates[0];
-    cout << "[AI] Play: " << bestMove.word << " at " << bestMove.row << "," << bestMove.col
+
+    // Generate correct move string
+    // We only send the tiles we are placing, not the full word.
+    DifferentialMove engineMove = calculateEngineMove(letters, bestMove);
+
+    cout << "[AI] Play: " << bestMove.word
+         << " (Send: " << engineMove.word << " @" << engineMove.row << "," << engineMove.col << ")"
          << " (" << bestMove.score << " est. pts)" << endl;
 
     // Construct the Move object
     Move result;
     result.type = MoveType::PLAY;
-    result.row = bestMove.row;
-    result.col = bestMove.col;
-    result.word = bestMove.word;
+    result.row = engineMove.row;
+    result.col = engineMove.col;
+    result.word = engineMove.word;
     result.horizontal = bestMove.isHorizontal;
     return result;
 }
@@ -100,6 +160,9 @@ void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters, const TileRack &
         rackStr += t.letter;
     }
 
+    // Pre-calculate the rack mask
+    uint32_t rackMask = getRackMask(rackStr);
+
     // 3. Scan the row for start points (0..14)
     for (int startCol = 0; startCol < 15; startCol++) {
         // Optimization: Dont start strictly inside an existing word (unless extending)
@@ -107,7 +170,7 @@ void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters, const TileRack &
             continue;
         }
 
-        recursiveSearch(gDawg.rootIndex, startCol, constraints,
+        recursiveSearch(gDawg.rootIndex, startCol, constraints, rackMask,
            "", rackStr, false, letters);
     }
 }
@@ -115,6 +178,7 @@ void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters, const TileRack &
 void AIPlayer::recursiveSearch(int nodeIdx,
                                int col,
                                const RowConstraint &constraints,
+                               uint32_t rackMask,
                                string currentWord,
                                string currentRack,
                                bool anchorFilled,
@@ -135,19 +199,30 @@ void AIPlayer::recursiveSearch(int nodeIdx,
         return;
     }
 
-    // ORPHEUS Intersection
+    // --- TRIPLE CONSTRAINT INTERSECTION ---
+    // 1. Dictionary says: "Words exist with these letters"
+    // 2. Board says: "Only these letters fit here"
+    // 3. Rack says: "I only have these letters" (Only effective if no blank)
     uint32_t dictMask = gDawg.nodes[nodeIdx].edgeMask;
     uint32_t boardMask = constraints.masks[col];
 
-    uint32_t validLetters = dictMask & boardMask;
+    // THE OPTIMIZATION:
+    // If the board square is empty, we MUST use a rack tile.
+    // So we can intersect with rackMask.
+    // If the board square is FULL, we ignore rackMask (we use the board tile).
 
-    if (validLetters == 0) {
+    uint32_t effectiveMask = boardMask & dictMask;
+    if (letters[this->currentRow][col] == ' ') {
+        effectiveMask &= rackMask;
+    }
+
+    if (effectiveMask == 0) {
         return; // PRUNE
     }
 
     // Iterate bits
     for (int i = 0; i < 26; i++) {
-        if (!((validLetters >> i) & 1)) {
+        if (!((effectiveMask >> i) & 1)) {
             continue;
         }
 
@@ -158,7 +233,7 @@ void AIPlayer::recursiveSearch(int nodeIdx,
         // Is this tile already on board
         if (letters[this->currentRow][col] == letter) {
             // Yes: must use it. Anchor satisfied
-            recursiveSearch(childNode, col + 1, constraints, currentWord + letter, currentRack,
+            recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + letter, currentRack,
                             true, letters);
         }
         else if (letters[this->currentRow][col] == ' ') {
@@ -166,21 +241,25 @@ void AIPlayer::recursiveSearch(int nodeIdx,
             size_t found = currentRack.find(letter);
             bool isBlank = (found == string::npos) && (currentRack.find('?') != string::npos);
 
-            if (found != string::npos || isBlank) {
-                // Remove time from the rack
+            if (found != string::npos) {
+                //Normal tile
                 string nextRack = currentRack;
-                if (found != string::npos) {
-                    nextRack.erase(found, 1);
-                } else {
-                    size_t b = nextRack.find('?');
-                    nextRack.erase(b, 1);
-                }
+                nextRack.erase(found, 1);
 
-                // Did we connect something?
-                // if mask is not MASK_ANY, we satisfied a cross check (connected vertically)
-                bool newAnchor = anchorFilled || (constraints.masks[col] != MASK_ANY);
+                bool newAnchor = anchorFilled || (constraints.masks[col]) != MASK_ANY;
+                recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + letter,
+                                nextRack, newAnchor, letters);
+            } else if (isBlank) {
+                //Blank tile
+                string nextRack = currentRack;
+                size_t b = nextRack.find('?');
+                nextRack.erase(b, 1);
 
-                recursiveSearch(childNode, col + 1, constraints, currentWord + letter,
+                bool newAnchor = anchorFilled || (constraints.masks[col]) != MASK_ANY;
+
+                // Fix: Appending lowercase letter to indicate blank usage
+                char blankRep = tolower(letter);
+                recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + blankRep,
                                 nextRack, newAnchor, letters);
             }
         }
