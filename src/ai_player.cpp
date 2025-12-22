@@ -59,9 +59,9 @@ SearchRange getActiveBoardArea(const LetterBoard &letters) {
     // Using min/max to ensure no going out of bounds.
     return{
         max(0, minR - 1),
-        max(14, maxR + 1),
-        max(0, maxC - 1),
-        max(14, maxC + 1),
+        min(14, maxR + 1),
+        max(0, minC - 1),
+        min(14, maxC + 1),
         false
     };
 }
@@ -203,7 +203,7 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
         }
     }
 
-    for (int c = range.minCol; c < range.maxCol; c++) {
+    for (int c = range.minCol; c <= range.maxCol; c++) {
         // When solving vertically, 'rowIdx' passed to solveRow is actually the COLUMN index
         solveRow(c, transposed, rack, false, range.isEmpty);
     }
@@ -252,7 +252,13 @@ void AIPlayer::recursiveSearch(int nodeIdx,
                                bool tilesPlaced) {
     // Base case: out of bounds
     if (col >= 15) {
-        if (gDawg.nodes[nodeIdx].isEndOfWord && anchorFilled && tilesPlaced && currentWord.length() > 1) {
+
+        // Standard word ( length > 1): Must be in the dictionary
+        bool isStandardWord = (currentWord.length() > 1 && gDawg.nodes[nodeIdx].isEndOfWord);
+        // Parallel Play/ Single tile move ( length == 1 ): Must have vertical neighbours
+        bool isParallelPlay = (currentWord.length() == 1 && constraints.masks[col-1] != MASK_ANY);
+
+        if ((isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
             int startCol = col - currentWord.length();
 
             // Coordinate fix
@@ -341,7 +347,13 @@ void AIPlayer::recursiveSearch(int nodeIdx,
 
     // Stopping condition
     // If we form a valid word, try to save it.
-    if (gDawg.nodes[nodeIdx].isEndOfWord && anchorFilled && tilesPlaced && currentWord.length() > 1) {
+
+    // Standard word ( length > 1): Must be in the dictionary
+    bool isStandardWord = (currentWord.length() > 1 && gDawg.nodes[nodeIdx].isEndOfWord);
+    // Parallel Play/ Single tile move ( length == 1 ): Must have vertical neighbours
+    bool isParallelPlay = (currentWord.length() == 1 && col > 0 && constraints.masks[col-1] != MASK_ANY);
+
+    if ((isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
         // We can only stop if next square is empty or out of bounds.
         // If the next square has a letters, we are forced to continue extending
         if (col == 15 || (col < 15 && letters[this->currentRow][col] == ' ')) {
