@@ -30,6 +30,121 @@ struct SearchRange {
     bool isEmpty; // track empty board state
 };
 
+// Helper to calculate score for a specific move
+int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
+
+    int totalScore = 0;
+    int mainWordScore = 0;
+    int mainWordMultiplier = 1;
+    int tilesPlacedCount = 0;
+
+    int r = move.row;
+    int c = move.col;
+    int dr = move.isHorizontal ? 0 : 1;
+    int dc = move.isHorizontal ? 1 : 0;
+
+    // 1. Scoring the main word
+    for (char letter : move.word) {
+        // Safeguard
+        if (r < 0 || r > 14 || c < 0 || c > 14) {
+            return -1000;
+        }
+
+        int letterScore = getTileValue(letter);
+        bool isNewlyPlaced = (letters[r][c] == ' ');
+
+        if (isNewlyPlaced) {
+            tilesPlacedCount++;
+
+            // Apply Letter Multipliers (only for new tiles)
+            CellType bonus = bonusBoard[r][c];
+
+            if (bonus == CellType::DLS) letterScore *= 2;
+            else if (bonus == CellType::TLS) letterScore *= 3;
+
+            if (bonus == CellType::DWS) mainWordMultiplier *= 2;
+            else if (bonus == CellType::TWS) mainWordMultiplier *= 3;
+        }
+
+        mainWordScore += letterScore;
+
+        // 2. Score cross words
+        if (isNewlyPlaced) {
+            // Checks perpendicular direction
+            int pdr = move.isHorizontal ? 1 : 0;
+            int pdc = move.isHorizontal ? 0 : 1;
+
+            bool hasNeighbour = false;
+
+            // Checks bounds dynamically based on where we are looking
+            int checkR1 = r - pdr;
+            int checkC1 = c - pdc;
+            if (checkR1 >= 0 && checkR1 < 15 && checkC1 >= 0 && checkC1 < 15 && letters[checkR1][checkC1] != ' ') {
+                hasNeighbour = true;
+            }
+
+            int checkR2 = r + pdr;
+            int checkC2 = c + pdc;
+            if (checkR2 >= 0 && checkR2 < 15 && checkC2 >= 0 && checkC2 < 15 && letters[checkR2][checkC2] != ' ') {
+                hasNeighbour = true;
+            }
+
+            if (hasNeighbour) {
+                // Find the start of the cross word
+                int currR = r;
+                int currC = c;
+
+                // Scan backwards
+                while (currR - pdr >= 0 && currC - pdc >= 0 && letters[currR-pdr][currC-pdc] != ' ') {
+                    currR -= pdr;
+                    currC -= pdc;
+                }
+
+                int crossScore = 0;
+                int crossMult = 1;
+
+                // Scan forwards to score the entier cross word
+                while (currR < 15 && currC < 15) {
+                    char cellLetter = letters[currR][currC];
+
+                    if (currR == r && currC == c) {
+                        // In the tile we just placed, so bonuses apply
+                        int crossLetterScore = getTileValue(letter);
+                        CellType crossBonus = bonusBoard[currR][currC];
+
+                        if (crossBonus == CellType::DLS) crossLetterScore *= 2;
+                        else if (crossBonus == CellType::TLS) crossLetterScore *= 3;
+
+                        if (crossBonus == CellType::DWS) crossMult *= 2;
+                        else if (crossBonus == CellType::TWS) crossMult *= 3;
+
+                        crossScore += crossLetterScore;
+                    } else if (cellLetter != ' ') {
+                        // Existing tile. Adding value (no bonuses)
+                        crossScore += getTileValue(cellLetter);
+                    } else {
+                        break; // End of the word (empty square)
+                    }
+                    currR += pdr;
+                    currC += pdc;
+                }
+                totalScore += (crossScore * crossMult);
+            }
+        }
+        r += dr;
+        c += dc;
+    }
+    totalScore += (mainWordScore * mainWordMultiplier);
+
+    // 3. Bingo bonus (50+ for using all 7 tiles)
+    if (tilesPlacedCount == 7) {
+        totalScore += 50;
+    }
+
+    return totalScore;
+}
+
+
 SearchRange getActiveBoardArea(const LetterBoard &letters) {
     int minR = 14;
     int maxR = 0;
@@ -141,8 +256,12 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         return passMove;
     }
 
+    // True score for each move
+    for (auto &cand : candidates ) {
+        cand.score = calculateTrueScore(cand, letters, bonusBoard);
+    }
+
     // Sort by score (descending)
-    // Note to Self: in V1 we are using estimated scores (length * 10)
     std::sort(candidates.begin(), candidates.end(),
               [](const MoveCandidate &a, const MoveCandidate &b) {
                   return a.score > b.score;
@@ -250,27 +369,27 @@ void AIPlayer::recursiveSearch(int nodeIdx,
                                const LetterBoard &letters,
                                bool isEmptyBoard,
                                bool tilesPlaced) {
-    // Base case: out of bounds
-    if (col >= 15) {
+    // Standard word ( length > 1): Must be in the dictionary
+    bool isStandardWord = (currentWord.length() > 1 && gDawg.nodes[nodeIdx].isEndOfWord);
+    // Parallel Play/ Single tile move ( length == 1 ): Must have vertical neighbours
+    bool isParallelPlay = (currentWord.length() == 1 && constraints.masks[col-1] != MASK_ANY);
 
-        // Standard word ( length > 1): Must be in the dictionary
-        bool isStandardWord = (currentWord.length() > 1 && gDawg.nodes[nodeIdx].isEndOfWord);
-        // Parallel Play/ Single tile move ( length == 1 ): Must have vertical neighbours
-        bool isParallelPlay = (currentWord.length() == 1 && constraints.masks[col-1] != MASK_ANY);
+    // Can stop if we formed a valid word AND (we are at the edge OR next square is empty)
+    bool atEdge = (col >= 15);
+    bool nextSquareEmpty = (col < 15 && letters[this->currentRow][col] != ' ');
 
-        if ((isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
-            int startCol = col - currentWord.length();
-
-            // Coordinate fix
-            int finalRow = this->currentIsHorizontal ? this->currentRow : startCol;
-            int finalCol = this->currentIsHorizontal ? startCol : this->currentRow;
-
-            int estScore = currentWord.length() * 10; // Simple heuristic
-
-            candidates.push_back({finalRow, finalCol, currentWord, estScore, this->currentIsHorizontal});
+    if ((isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
+        int startCol = col - currentWord.length();
+        // Coordinate fix
+        int finalRow = this->currentIsHorizontal ? this->currentRow : startCol;
+        int finalCol = this->currentIsHorizontal ? startCol : this->currentRow;
+        if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
+            candidates.push_back({finalRow, finalCol, currentWord, 0, this->currentIsHorizontal});
         }
-        return;
     }
+
+    // 2. Base case: Reached the edge, so we gotta stop
+    if (col >= 15) return;
 
     // --- TRIPLE CONSTRAINT INTERSECTION ---
     // 1. Dictionary says: "Words exist with these letters"
@@ -342,26 +461,6 @@ void AIPlayer::recursiveSearch(int nodeIdx,
                 recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + blankRep,
                                 nextRack, newAnchor, letters, isEmptyBoard, true);
             }
-        }
-    }
-
-    // Stopping condition
-    // If we form a valid word, try to save it.
-
-    // Standard word ( length > 1): Must be in the dictionary
-    bool isStandardWord = (currentWord.length() > 1 && gDawg.nodes[nodeIdx].isEndOfWord);
-    // Parallel Play/ Single tile move ( length == 1 ): Must have vertical neighbours
-    bool isParallelPlay = (currentWord.length() == 1 && col > 0 && constraints.masks[col-1] != MASK_ANY);
-
-    if ((isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
-        // We can only stop if next square is empty or out of bounds.
-        // If the next square has a letters, we are forced to continue extending
-        if (col == 15 || (col < 15 && letters[this->currentRow][col] == ' ')) {
-            int startCol = col - currentWord.length();
-            int finalRow = this->currentIsHorizontal ? this->currentRow : startCol;
-            int finalCol = this->currentIsHorizontal ? startCol : this->currentRow;
-            int estScore = currentWord.length() * 10;
-            candidates.push_back({finalRow, finalCol, currentWord, estScore, this->currentIsHorizontal});
         }
     }
 }

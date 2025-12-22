@@ -10,6 +10,7 @@
 #include "../../../include/choices.h"
 #include "../../../include/human_player.h"
 #include "../../../include/ai_player.h"
+#include "../../../include/modes/Home/home.h"
 
 using namespace std;
 
@@ -99,11 +100,11 @@ void runPvE() {
                                                         players[1 - currentPlayer], // Opponent
                                                         currentPlayer + 1);
 
-        // --- EXECUTE MOVE ---
+        // move execution
         if (move.type == MoveType::PASS) {
             passTurn(players, currentPlayer, canChallenge, lastMove);
-            printBoard(bonusBoard, letters);
-            cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
+            //printBoard(bonusBoard, letters);
+            //cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
 
             if (currentPlayer == 0) {
                 cout << "\nYour Turn:" << endl;
@@ -186,6 +187,8 @@ void runPvE() {
     // Clean up
     delete controllers[0];
     delete controllers[1];
+    waitForQuitKey();
+    clearScreen();
 }
 
 

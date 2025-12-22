@@ -31,4 +31,6 @@ add_executable(scrabblePi src/board.cpp
         include/ai_player.h
         src/ai_player.cpp
         include/modes/PvE/pve.h
-        src/modes/PvE/pve.cpp)
+        src/modes/PvE/pve.cpp
+        src/modes/AiAi/aiai.cpp
+        include/modes/AiAi/aiai.h)

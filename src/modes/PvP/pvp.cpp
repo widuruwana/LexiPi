@@ -9,6 +9,7 @@
 #include "../../../include/dict.h"
 #include "../../../include/choices.h"
 #include "../../../include/human_player.h"
+#include "../../../include/modes/Home/home.h"
 
 using namespace std;
 
@@ -162,6 +163,8 @@ void runPvP() {
 
     delete controllers[0];
     delete controllers[1];
+    waitForQuitKey();
+    clearScreen();
 }
 
 

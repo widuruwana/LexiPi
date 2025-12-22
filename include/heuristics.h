@@ -1,25 +1,36 @@
 #pragma once
 
 #include <string>
-#include <unordered_map>
 #include <cctype>
 
-// Standard rack leave values
-static std::unordered_map<char, float> leaveValues = {
-    {'A', 1.0}, {'B', -2.0}, {'C', -1.0}, {'D', 0.0}, {'E', 3.0},
-    {'F', -2.0}, {'G', -2.0}, {'H', 1.0}, {'I', 0.0}, {'J', -3.0},
-    {'K', -2.5}, {'L', 0.5}, {'M', -1.0}, {'N', 1.0}, {'O', -1.0},
-    {'P', -1.5}, {'Q', -7.0}, {'R', 4.0}, {'S', 8.0}, {'T', 1.5},
-    {'U', -2.0}, {'V', -4.0}, {'W', -3.0}, {'X', -3.0}, {'Y', -2.0},
-    {'Z', -2.0}, {'?', 25.0}
+// Scrabble Tile Values (A=1, B=3, etc.)
+// A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
+static constexpr int TILE_VALUES[26] = {
+    1, 3, 3, 2, 1, 4, 2, 4, 1, 8, 5, 1, 3, 1, 1, 3, 10, 1, 1, 1, 1, 4, 4, 8, 4, 10
 };
 
-inline float getRackLeaveScore(const std::string & rack) {
-    float score = 0;
-    for (char c: rack) {
-        char up = static_cast<char>(toupper(static_cast<unsigned char>(c)));
-        if (leaveValues.count(up)) {
-            score += leaveValues[up];
-        }
-    }
+// Rack leave values (Strategic value of keeping a tile)
+static constexpr float LEAVE_VALUES[26] = {
+    1.0f, -2.0f, -1.0f, 0.0f, 3.0f,  // A-E
+    -2.0f, -2.0f, 1.0f, 0.0f, -3.0f, // F-J
+    -2.5f, 0.5f, -1.0f, 1.0f, -1.0f, // K-O
+    -1.5f, -7.0f, 4.0f, 8.0f, 1.5f,  // P-T
+    -2.0f, -4.0f, -3.0f, -3.0f, -2.0f, // U-Y
+    -2.0f                            // Z
+};
+
+static constexpr float BLANK_LEAVE_VALUE = 25.0f;
+
+inline int getTileValue(char letter) {
+    if (letter == ' ' || letter == '?') return 0;
+    int idx = toupper(letter) - 'A';
+    if (idx >= 0 && idx < 26) return TILE_VALUES[idx];
+    return 0;
+}
+
+inline float getLeaveValue(char letter) {
+    if (letter == '?') return BLANK_LEAVE_VALUE;
+    int idx = toupper(letter) - 'A';
+    if (idx >= 0 && idx < 26) return LEAVE_VALUES[idx];
+    return 0.0f;
 }

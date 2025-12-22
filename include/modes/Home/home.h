@@ -2,6 +2,10 @@
 
 using namespace std;
 
+void clearScreen();
+
+void waitForQuitKey();
+
 void showAboutScreen();
 
 void printTitleScreen();

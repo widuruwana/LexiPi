@@ -10,7 +10,7 @@
 
 using namespace std;
 
-static void clearScreen() {
+void clearScreen() {
 // for Windows
 #ifdef _WIN32
     system("cls");
@@ -23,7 +23,7 @@ static void clearScreen() {
 }
 
 // wait until user presses Q or q
-static void waitForQuitKey() {
+void waitForQuitKey() {
     cout << "\n\033[1;33mPress 'Q' to return...\033[0m\n";
 
     while (true) {
