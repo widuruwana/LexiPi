@@ -17,10 +17,12 @@ struct DawgNode {
     // Children nodes.
     // use a fixed array of indices into the global vector
     // -1 indicates no child
-    int children[26];
+    // 0-25: A-Z
+    // 26: Delimiter (for GADDAG)
+    int children[27];
 
     DawgNode() {
-        for (int i = 0; i < 26; i++) {
+        for (int i = 0; i < 27; i++) {
             children[i] = -1;
         }
     }
@@ -35,6 +37,9 @@ public:
 
     // Take the raw word list and compiles it into the graph
     void buildFromWordList(const vector < string > & wordList);
+    
+    // Build GADDAG from word list
+    void buildGaddag(const vector<string> &wordList);
 
     // Verification
     bool contains(const string & word) const;

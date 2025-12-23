@@ -10,16 +10,17 @@ static constexpr int TILE_VALUES[26] = {
 };
 
 // Rack leave values (Strategic value of keeping a tile)
+// More balanced - less punishing for consonants, more reward for flexibility
 static constexpr float LEAVE_VALUES[26] = {
-    1.0f, -2.0f, -1.0f, 0.0f, 3.0f,  // A-E
-    -2.0f, -2.0f, 1.0f, 0.0f, -3.0f, // F-J
-    -2.5f, 0.5f, -1.0f, 1.0f, -1.0f, // K-O
-    -1.5f, -7.0f, 4.0f, 8.0f, 1.5f,  // P-T
-    -2.0f, -4.0f, -3.0f, -3.0f, -2.0f, // U-Y
-    -2.0f                            // Z
+    2.0f, -1.5f, -0.5f, 0.5f, 4.0f,   // A-E (vowels more valuable)
+    -1.5f, -1.0f, 1.5f, 1.0f, -2.5f,  // F-J
+    -2.0f, 1.0f, -0.5f, 1.5f, -0.5f,  // K-O
+    -1.0f, -6.0f, 5.0f, 9.0f, 2.0f,   // P-T (S,R,T very valuable)
+    -1.0f, -3.0f, -2.0f, -2.5f, -1.5f, // U-Y
+    -1.5f                              // Z
 };
 
-static constexpr float BLANK_LEAVE_VALUE = 25.0f;
+static constexpr float BLANK_LEAVE_VALUE = 30.0f;  // Increased from 25
 
 inline int getTileValue(char letter) {
     if (letter == ' ' || letter == '?') return 0;
@@ -33,4 +34,55 @@ inline float getLeaveValue(char letter) {
     int idx = toupper(letter) - 'A';
     if (idx >= 0 && idx < 26) return LEAVE_VALUES[idx];
     return 0.0f;
+}
+
+// Calculate the total leave value for a rack
+inline float calculateRackLeave(const string &rackStr) {
+    float total = 0.0f;
+    bool hasQ = false;
+    bool hasU = false;
+    bool hasI = false;
+    bool hasN = false;
+    bool hasG = false;
+    
+    for (char c : rackStr) {
+        total += getLeaveValue(c);
+        char upper = toupper(c);
+        if (upper == 'Q') hasQ = true;
+        if (upper == 'U') hasU = true;
+        if (upper == 'I') hasI = true;
+        if (upper == 'N') hasN = true;
+        if (upper == 'G') hasG = true;
+    }
+    
+    // Synergy penalties/bonuses
+    if (hasQ && !hasU) {
+        total -= 6.0f; // Q without U is terrible
+    }
+    
+    // ING synergy
+    if (hasI && hasN && hasG) {
+        total += 3.0f;
+    }
+    
+    // Vowel balance check
+    int vowels = 0;
+    int consonants = 0;
+    for (char c : rackStr) {
+        char upper = toupper(c);
+        if (upper == 'A' || upper == 'E' || upper == 'I' || upper == 'O' || upper == 'U') {
+            vowels++;
+        } else if (upper != '?') {
+            consonants++;
+        }
+    }
+    
+    // Ideal balance is roughly 40-50% vowels
+    // Penalize extremes
+    if (vowels == 0 && consonants > 0) total -= 5.0f;
+    if (consonants == 0 && vowels > 0) total -= 5.0f;
+    if (vowels > 4) total -= 2.0f;
+    if (consonants > 5) total -= 2.0f;
+    
+    return total;
 }

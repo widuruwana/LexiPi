@@ -30,6 +30,8 @@ add_executable(scrabblePi src/board.cpp
         src/fast_constraints.cpp
         include/ai_player.h
         src/ai_player.cpp
+        include/endgame_solver.h
+        src/endgame_solver.cpp
         include/modes/PvE/pve.h
         src/modes/PvE/pve.cpp
         src/modes/AiAi/aiai.cpp

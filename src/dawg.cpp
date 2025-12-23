@@ -18,47 +18,88 @@ void Dawg::clear() {
 }
 
 void Dawg::buildFromWordList(const vector < string > & wordList) {
-    cout << "Compiling Dictionary into Orpheus Graph..." << endl;
+    // For now, we are switching to GADDAG by default as requested
+    buildGaddag(wordList);
+}
 
+void Dawg::buildGaddag(const vector<string> &wordList) {
+    cout << "Compiling Dictionary into GADDAG..." << endl;
+    
     clear();
-
-    // Assumes the input 'wordList' is sorted alphabetically for a standard Trie construction.
-    // (true DAWG minimization would happen here, but for V1 a trie is sufficient.
-    // and safer to implement quickly. Will add node merging later to save RAM
-
-    for (const string & word : wordList) {
-        int currentNodeIndex = rootIndex;
-
-        for (char c: word) {
-            int letterIdx = toupper(c) - 'A';
-            if (letterIdx < 0 || letterIdx > 25) {
-                continue; //skip invalid letters
+    
+    // GADDAG Construction:
+    // For each word w = c1 c2 ... cn
+    // For each k from 1 to n:
+    //   Insert path: ck ck-1 ... c1 < ck+1 ... cn
+    // Where < is the delimiter (index 26)
+    
+    for (const string &word : wordList) {
+        int n = word.length();
+        
+        for (int k = 0; k < n; k++) {
+            int currentNodeIndex = rootIndex;
+            
+            // 1. Insert prefix reversed: ck ... c1
+            for (int i = k; i >= 0; i--) {
+                int letterIdx = toupper(word[i]) - 'A';
+                if (letterIdx < 0 || letterIdx > 25) continue;
+                
+                nodes[currentNodeIndex].edgeMask |= (1 << letterIdx);
+                
+                if (nodes[currentNodeIndex].children[letterIdx] == -1) {
+                    nodes.emplace_back();
+                    int newNodeIndex = static_cast<int>(nodes.size() - 1);
+                    nodes[currentNodeIndex].children[letterIdx] = newNodeIndex;
+                    currentNodeIndex = newNodeIndex;
+                } else {
+                    currentNodeIndex = nodes[currentNodeIndex].children[letterIdx];
+                }
             }
-
-            // Update the mask for the "Constraint Tunnel"
-            // |= means adds the new bit to the existing mask without destroying existing bits
-            // ex:- edgeMask = 00000101 (A and C exist)
-            // adding 'D' -> 1 << 3 = 00001000
-            // edgeMask |= 00001000
-            // edgeMask = 00001101 ( A, C, D exist)
-            nodes[currentNodeIndex].edgeMask |= (1 << letterIdx);
-
-            // Traverse or Create
-            if (nodes[currentNodeIndex].children[letterIdx] == -1) {
-                // Create a new node
+            
+            // 2. Insert delimiter '<' (index 26)
+            // Only if there is a suffix (k < n-1) OR to mark end of reversed prefix
+            // Standard GADDAG: always insert delimiter unless we are at the very end?
+            // Actually, GADDAG usually treats the first part as the "reversed prefix" and the second as "suffix".
+            // The delimiter separates them.
+            // Path: ck..c1 < ck+1..cn
+            
+            int delimIdx = 26;
+            // We use bit 26 for mask if we had 32 bits, but edgeMask is uint32_t so it fits.
+            nodes[currentNodeIndex].edgeMask |= (1 << delimIdx);
+            
+            if (nodes[currentNodeIndex].children[delimIdx] == -1) {
                 nodes.emplace_back();
-                int newNodeIndex = static_cast<int>(nodes.size()- 1);
-                nodes[currentNodeIndex].children[letterIdx] = newNodeIndex;
+                int newNodeIndex = static_cast<int>(nodes.size() - 1);
+                nodes[currentNodeIndex].children[delimIdx] = newNodeIndex;
                 currentNodeIndex = newNodeIndex;
             } else {
-                currentNodeIndex = nodes[currentNodeIndex].children[letterIdx];
+                currentNodeIndex = nodes[currentNodeIndex].children[delimIdx];
             }
+            
+            // 3. Insert suffix: ck+1 ... cn
+            for (int i = k + 1; i < n; i++) {
+                int letterIdx = toupper(word[i]) - 'A';
+                if (letterIdx < 0 || letterIdx > 25) continue;
+                
+                nodes[currentNodeIndex].edgeMask |= (1 << letterIdx);
+                
+                if (nodes[currentNodeIndex].children[letterIdx] == -1) {
+                    nodes.emplace_back();
+                    int newNodeIndex = static_cast<int>(nodes.size() - 1);
+                    nodes[currentNodeIndex].children[letterIdx] = newNodeIndex;
+                    currentNodeIndex = newNodeIndex;
+                } else {
+                    currentNodeIndex = nodes[currentNodeIndex].children[letterIdx];
+                }
+            }
+            
+            // Mark end of word
+            nodes[currentNodeIndex].isEndOfWord = true;
         }
-        nodes[currentNodeIndex].isEndOfWord = true;
     }
-
+    
     size_t ramUsage = nodes.size() * sizeof(DawgNode);
-    cout << "Graph Compiled. Nodes " << nodes.size()
+    cout << "GADDAG Compiled. Nodes " << nodes.size()
          << " (Memory: " << (ramUsage / 1024 / 1024) << " MB)" << endl;
 }
 
