@@ -11,14 +11,14 @@ using namespace std;
 
 int main() {
 
+    loadDictionary("csw24.txt");
+
     // selection menu
     while (true) {
 
         printTitleScreen();
 
         char mode;
-
-        loadDictionary("csw24.txt");
 
         cout << "=========================================\n";
         cout << "           Welcome to LEXI_PI\n";

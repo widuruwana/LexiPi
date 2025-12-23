@@ -35,11 +35,6 @@ void runAiAi() {
     cout << "Watch the games? (1 = Yes, 0 = No/Fast): ";
     cin >> verbose;
 
-    if (!loadDictionary("csw24.txt")) {
-        cout << "Error: Dictionary not found.\n";
-        return;
-    }
-
     vector<MatchResult> results;
     auto startTotal = chrono::high_resolution_clock::now();
 

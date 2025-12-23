@@ -41,6 +41,9 @@ public:
     // Build GADDAG from word list
     void buildGaddag(const vector<string> &wordList);
 
+    // Minimize the graph by merging identical nodes
+    void minimize();
+
     // Verification
     bool contains(const string & word) const;
 

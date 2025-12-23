@@ -54,7 +54,8 @@ private:
     TileTracker tileTracker;
     EvaluationModel evalModel;
     EvaluationModel* externalModel = nullptr; // Pointer to external model (if any)
-    
+    bool weightsLoaded = false;
+
     // Helper functions for strategic depth
     bool isEndgame(const TileBag &bag, const TileRack &myRack, const TileRack &oppRack) const;
     bool isCriticalPosition(const Player &me, const Player &opponent, const TileBag &bag) const;
@@ -72,38 +73,18 @@ private:
     // The solver functions
     void findAllMoves(const LetterBoard &letters, const TileRack &rack);
 
-    void solveRow(int rowIdx, const LetterBoard &letters,
-                  const TileRack &rack, bool isHorizontal, bool isEmptyBoard);
-
-    // Recursive "Tunneling" function
-    // nodeIdx: Current node in DAWG
-    // col: Current column on board
-    // currentWord: The word built so far
-    // tilesUsed: which tiles from rack we used (to avoid re-using)
-    // anchorFilled: Have we connected to existing board yet?
-    void recursiveSearch(int nodeIdx,
-                         int col,
-                         const RowConstraint &constraints,
-                         uint32_t rackMask,
-                         string currentWord,
-                         string currentRack,
-                         bool anchorFilled,
-                         const LetterBoard &letters,
-                         bool isEmptyBoard,
-                         bool tilesPlaced);
-
     // GADDAG Move Generation
-    void genMovesGaddag(int anchorRow, int anchorCol, const LetterBoard &letters, const TileRack &rack, bool isHorizontal);
+    void genMovesGaddag(int anchorRow, int anchorCol, const LetterBoard &letters, int rackCounts[27], bool isHorizontal, const RowConstraint& constraints);
     
     // GADDAG Helper: Go Left (Reversed Prefix)
     void goLeft(int nodeIdx, int currRow, int currCol,
-                const LetterBoard &letters, string currentRack,
-                string currentWord, int anchorCol, bool isHorizontal);
+                const LetterBoard &letters, int rackCounts[27],
+                string currentWord, int anchorCol, bool isHorizontal, const RowConstraint& constraints);
                 
     // GADDAG Helper: Go Right (Suffix)
     void goRight(int nodeIdx, int currRow, int currCol,
-                 const LetterBoard &letters, string currentRack,
-                 string currentWord, int startCol, bool isHorizontal);
+                 const LetterBoard &letters, int rackCounts[27],
+                 string currentWord, int startCol, bool isHorizontal, const RowConstraint& constraints);
     
     // 2-ply evaluation: simulate a move and get opponent's best reply
     float evaluate2Ply(const MoveCandidate &myMove,

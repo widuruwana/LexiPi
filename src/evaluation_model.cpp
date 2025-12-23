@@ -38,8 +38,18 @@ EvaluationModel::EvaluationModel() {
 bool EvaluationModel::loadWeights(const string& filepath) {
     ifstream file(filepath);
     if (!file.is_open()) {
-        cerr << "[EvaluationModel] Warning: Could not open weights file: " << filepath << ". Using defaults." << endl;
-        return false;
+        // Try looking in parent directories if not found
+        string parentPath = "../" + filepath;
+        file.open(parentPath);
+        if (!file.is_open()) {
+            parentPath = "../../" + filepath;
+            file.open(parentPath);
+        }
+        
+        if (!file.is_open()) {
+            cerr << "[EvaluationModel] Warning: Could not open weights file: " << filepath << ". Using defaults." << endl;
+            return false;
+        }
     }
 
     string line;

@@ -1,6 +1,8 @@
 #include "../include/dawg.h"
 #include <iostream>
 #include <algorithm>
+#include <map>
+#include <functional>
 
 using namespace std;
 
@@ -100,6 +102,73 @@ void Dawg::buildGaddag(const vector<string> &wordList) {
     
     size_t ramUsage = nodes.size() * sizeof(DawgNode);
     cout << "GADDAG Compiled. Nodes " << nodes.size()
+         << " (Memory: " << (ramUsage / 1024 / 1024) << " MB)" << endl;
+
+    minimize();
+}
+
+struct NodeSignature {
+    bool isEndOfWord;
+    uint32_t edgeMask;
+    int children[27];
+
+    bool operator<(const NodeSignature& other) const {
+        if (isEndOfWord != other.isEndOfWord) return isEndOfWord < other.isEndOfWord;
+        if (edgeMask != other.edgeMask) return edgeMask < other.edgeMask;
+        for (int i = 0; i < 27; i++) {
+            if (children[i] != other.children[i]) return children[i] < other.children[i];
+        }
+        return false;
+    }
+};
+
+void Dawg::minimize() {
+    cout << "Minimizing GADDAG..." << endl;
+    vector<DawgNode> minimizedNodes;
+    map<NodeSignature, int> signatureMap;
+
+    // Helper function for recursive reduction
+    // Returns the index in minimizedNodes
+    std::function<int(int)> reduce = [&](int oldIdx) -> int {
+        if (oldIdx == -1) return -1;
+
+        DawgNode& oldNode = nodes[oldIdx];
+        NodeSignature sig;
+        sig.isEndOfWord = oldNode.isEndOfWord;
+        sig.edgeMask = oldNode.edgeMask;
+
+        // Recursively reduce children first
+        for (int i = 0; i < 27; i++) {
+            sig.children[i] = reduce(oldNode.children[i]);
+        }
+
+        // Check if this signature exists
+        auto it = signatureMap.find(sig);
+        if (it != signatureMap.end()) {
+            return it->second;
+        }
+
+        // Create new node
+        int newIdx = (int)minimizedNodes.size();
+        minimizedNodes.emplace_back();
+        minimizedNodes[newIdx].isEndOfWord = sig.isEndOfWord;
+        minimizedNodes[newIdx].edgeMask = sig.edgeMask;
+        for (int i = 0; i < 27; i++) {
+            minimizedNodes[newIdx].children[i] = sig.children[i];
+        }
+
+        signatureMap[sig] = newIdx;
+        return newIdx;
+    };
+
+    // Start reduction from root
+    int newRoot = reduce(rootIndex);
+    
+    nodes = minimizedNodes;
+    rootIndex = newRoot;
+
+    size_t ramUsage = nodes.size() * sizeof(DawgNode);
+    cout << "Minimization complete. Nodes: " << nodes.size()
          << " (Memory: " << (ramUsage / 1024 / 1024) << " MB)" << endl;
 }
 
