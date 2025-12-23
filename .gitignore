@@ -41,6 +41,17 @@ Makefile
 *.cmake
 !CMakeLists.txt
 
+# Visual Studio
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.dir/
+x64/
+Debug/
+Release/
+.vs/
+
 # IDEs
 .idea/
 .vscode/

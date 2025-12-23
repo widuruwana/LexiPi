@@ -1,0 +1,48 @@
+# Linear Regression Weights for Scrabble AI Evaluation
+# Format: KEY=VALUE
+
+# Feature Weights (Multipliers)
+SCORE_WEIGHT=1.0
+LEAVE_WEIGHT=1.0
+BALANCE_WEIGHT=1.0
+SYNERGY_WEIGHT=1.0
+
+# Rack Leave Values (Strategic value of keeping a tile)
+LEAVE_A=2.0
+LEAVE_B=-1.5
+LEAVE_C=-0.5
+LEAVE_D=0.5
+LEAVE_E=4.0
+LEAVE_F=-1.5
+LEAVE_G=-1.0
+LEAVE_H=1.5
+LEAVE_I=1.0
+LEAVE_J=-2.5
+LEAVE_K=-2.0
+LEAVE_L=1.0
+LEAVE_M=-0.5
+LEAVE_N=1.5
+LEAVE_O=-0.5
+LEAVE_P=-1.0
+LEAVE_Q=-6.0
+LEAVE_R=5.0
+LEAVE_S=9.0
+LEAVE_T=2.0
+LEAVE_U=-1.0
+LEAVE_V=-3.0
+LEAVE_W=-2.0
+LEAVE_X=-2.5
+LEAVE_Y=-1.5
+LEAVE_Z=-1.5
+LEAVE_BLANK=30.0
+
+# Penalties (Negative values)
+PENALTY_NO_VOWELS=-5.0
+PENALTY_NO_CONSONANTS=-5.0
+PENALTY_VOWEL_HEAVY=-2.0
+PENALTY_CONSONANT_HEAVY=-2.0
+PENALTY_Q_NO_U=-6.0
+
+# Synergies (Bonuses)
+BONUS_ING=3.0
+BONUS_Q_WITH_U_ON_BOARD=4.0

@@ -5,6 +5,7 @@
 #include "fast_constraints.h"
 #include "rack.h"
 #include "tile_tracker.h"
+#include "evaluation_model.h"
 #include <vector>
 #include <string>
 
@@ -35,6 +36,9 @@ public:
     // Placeholder for now (required by pure virtual)
     Move getEndGameDecision() override;
 
+    // Allow injecting a shared evaluation model (for training)
+    void setEvaluationModel(EvaluationModel* model);
+
 private:
     vector <MoveCandidate> candidates;
     
@@ -48,6 +52,8 @@ private:
     
     // Tile tracking for strategic play
     TileTracker tileTracker;
+    EvaluationModel evalModel;
+    EvaluationModel* externalModel = nullptr; // Pointer to external model (if any)
     
     // Helper functions for strategic depth
     bool isEndgame(const TileBag &bag, const TileRack &myRack, const TileRack &oppRack) const;

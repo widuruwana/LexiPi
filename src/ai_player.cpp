@@ -303,15 +303,19 @@ float AIPlayer::evaluate2Ply(const MoveCandidate &myMove,
     }
     
     // Calculate my rack leave value
-    string myRemainingRack = "";
-    for (const Tile &t : afterMyMove.myRack) {
-        myRemainingRack += t.letter;
-    }
-    float myLeaveValue = calculateRackLeave(myRemainingRack);
+    // string myRemainingRack = "";
+    // for (const Tile &t : afterMyMove.myRack) {
+    //     myRemainingRack += t.letter;
+    // }
+    // float myLeaveValue = calculateRackLeave(myRemainingRack);
     
+    // Use EvaluationModel
+    EvaluationModel& model = (externalModel != nullptr) ? *externalModel : evalModel;
+    float myEval = model.evaluate(afterMyMove.scoreGained, afterMyMove.myRack, afterMyMove.letters);
+
     // OPTIMIZATION 1: Early exit if opponent has no tiles (endgame)
     if (oppRack.empty()) {
-        return static_cast<float>(afterMyMove.scoreGained) + (LEAVE_WEIGHT * myLeaveValue);
+        return myEval;
     }
     
     // OPTIMIZATION 2: Generate opponent moves with early termination
@@ -355,10 +359,8 @@ float AIPlayer::evaluate2Ply(const MoveCandidate &myMove,
         }
     }
     
-    // Evaluation: my_score + leave_value - opponent_best_reply
-    float eval = static_cast<float>(afterMyMove.scoreGained)
-                 + (LEAVE_WEIGHT * myLeaveValue)
-                 - static_cast<float>(oppBestScore);
+    // Evaluation: my_eval - opponent_best_reply
+    float eval = myEval - static_cast<float>(oppBestScore);
     
     // Apply tile tracking adjustments for strategic depth
     eval = evaluateWithTileTracking(eval, oppRack);
@@ -381,12 +383,15 @@ float AIPlayer::evaluate3Ply(const MoveCandidate &myMove,
     if (!afterMyMove.success) return -10000.0f;
     
     // Calculate my rack leave
-    string myRemainingRack = "";
-    for (const Tile &t : afterMyMove.myRack) myRemainingRack += t.letter;
-    float myLeaveValue = calculateRackLeave(myRemainingRack);
+    // string myRemainingRack = "";
+    // for (const Tile &t : afterMyMove.myRack) myRemainingRack += t.letter;
+    // float myLeaveValue = calculateRackLeave(myRemainingRack);
     
+    EvaluationModel& model = (externalModel != nullptr) ? *externalModel : evalModel;
+    float myEval = model.evaluate(afterMyMove.scoreGained, afterMyMove.myRack, afterMyMove.letters);
+
     if (oppRack.empty()) {
-        return static_cast<float>(afterMyMove.scoreGained) + (LEAVE_WEIGHT * myLeaveValue);
+        return myEval;
     }
     
     // 2. Generate opponent's best reply (similar to 2-ply but we need the actual move)
@@ -396,7 +401,7 @@ float AIPlayer::evaluate3Ply(const MoveCandidate &myMove,
     
     if (oppCandidates.empty()) {
         // Opponent passes
-        return static_cast<float>(afterMyMove.scoreGained) + (LEAVE_WEIGHT * myLeaveValue);
+        return myEval;
     }
     
     // Sort and pick top opponent moves
@@ -444,8 +449,7 @@ float AIPlayer::evaluate3Ply(const MoveCandidate &myMove,
     
     // Evaluation: my_score + leave - opp_score + my_counter_score
     // We might want to weight the future scores less
-    float eval = static_cast<float>(afterMyMove.scoreGained)
-                 + (LEAVE_WEIGHT * myLeaveValue)
+    float eval = myEval
                  - static_cast<float>(oppScore)
                  + (0.6f * static_cast<float>(myCounterScore)); // Discount future score more (be less optimistic)
                  
@@ -534,6 +538,12 @@ Move AIPlayer::getMove(const Board &bonusBoard,
                        const Player &me,
                        const Player &opponent,
                        int PlayerNum) {
+
+    // Load weights if not already loaded (or reload to allow tuning)
+    // For now, we load once or every turn? Loading every turn allows live tuning.
+    if (externalModel == nullptr) {
+        evalModel.loadWeights("data/weights.txt");
+    }
 
     // To measure the time spent processing each turn
     auto startTime = high_resolution_clock::now();
@@ -705,16 +715,16 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         
         // Calculate remaining rack after this move
         SimulatedState simState = simulateMove(cand, bonusBoard, letters, blankBoard, bag, myRack);
-        string remainingRack = "";
+        
+        // Use EvaluationModel for sorting candidates too
+        float evalScore = 0.0f;
         if (simState.success) {
-            for (const Tile &t : simState.myRack) {
-                remainingRack += t.letter;
-            }
+            EvaluationModel& model = (externalModel != nullptr) ? *externalModel : evalModel;
+            evalScore = model.evaluate(baseScore, simState.myRack, simState.letters);
         }
-        float leaveValue = calculateRackLeave(remainingRack);
         
         // Store enhanced score (base + leave)
-        cand.score = baseScore + static_cast<int>(LEAVE_WEIGHT * leaveValue);
+        cand.score = static_cast<int>(evalScore);
     }
     
     // Re-sort with accurate scores for top candidates
@@ -864,6 +874,10 @@ float AIPlayer::evaluateWithTileTracking(float baseEval, const TileRack &oppRack
     adjustment -= (oppThreat * threatFactor * 0.05f); // Reduced threat scaling (was 0.1)
     
     return baseEval + adjustment;
+}
+
+void AIPlayer::setEvaluationModel(EvaluationModel* model) {
+    this->externalModel = model;
 }
 
 void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {

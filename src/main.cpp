@@ -5,6 +5,7 @@
 #include "../include/modes/PvP/pvp.h"
 #include "../include/modes/Home/home.h"
 #include "../include/modes/PvE/pve.h"
+#include "../include/modes/Training/training_mode.h"
 
 using namespace std;
 
@@ -32,6 +33,7 @@ int main() {
              << "(5) How to play\n"
              << "(6) About\n"
              << "(7) Quit\n"
+             << "(8) Train AI (RL)\n"
              << "Please select an option: ";
         cin >> mode;
 
@@ -51,6 +53,9 @@ int main() {
         } else if (mode == '7') {
             cout << " May your racks be fruitful and your bingos plentiful!\n" << endl;
             break;
+        } else if (mode == '8') {
+            TrainingMode trainer;
+            trainer.run();
         }
     }
 
