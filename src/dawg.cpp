@@ -1,4 +1,5 @@
 #include "../include/dawg.h"
+#include <fstream>
 #include <iostream>
 #include <algorithm>
 
@@ -6,11 +7,28 @@ using namespace std;
 
 Dawg gDawg;
 
+// We use index 26 as the 'Seperator'
+const int SEPERATOR = 26;
+
 Dawg::Dawg() {
     // Creating the root node immediately so that the graph is never empty
-    nodes.emplace_back();
+    rootIndex = 0;
+    nodes.emplace_back(); // create root
 }
 
+// Helper to get array index
+int getIndex(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a';
+    if (c == '^') return SEPERATOR; // '^' represent the seperator internally.
+    return -1;
+}
+
+void Dawg::insertGADDAG(const string &word) {
+
+}
+
+/*
 void Dawg::clear() {
     nodes.clear();
     nodes.emplace_back();
@@ -77,6 +95,7 @@ bool Dawg::contains(const string & word) const {
     }
     return nodes[current].isEndOfWord;
 }
+*/
 
 
 

@@ -1,5 +1,6 @@
 #include "../include/ai_player.h"
 #include "../include/heuristics.h" // For scoring
+#include "../include/tile_tracker.h"
 #include <algorithm>
 #include <iostream>
 #include <chrono>
@@ -50,7 +51,7 @@ int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, co
             return -1000;
         }
 
-        int letterScore = getTileValue(letter);
+        int letterScore = Heuristics::getTileValue(letter);
         bool isNewlyPlaced = (letters[r][c] == ' ');
 
         if (isNewlyPlaced) {
@@ -109,7 +110,7 @@ int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, co
 
                     if (currR == r && currC == c) {
                         // In the tile we just placed, so bonuses apply
-                        int crossLetterScore = getTileValue(letter);
+                        int crossLetterScore = Heuristics::getTileValue(letter);
                         CellType crossBonus = bonusBoard[currR][currC];
 
                         if (crossBonus == CellType::DLS) crossLetterScore *= 2;
@@ -121,7 +122,7 @@ int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, co
                         crossScore += crossLetterScore;
                     } else if (cellLetter != ' ') {
                         // Existing tile. Adding value (no bonuses)
-                        crossScore += getTileValue(cellLetter);
+                        crossScore += Heuristics::getTileValue(cellLetter);
                     } else {
                         break; // End of the word (empty square)
                     }
@@ -134,7 +135,10 @@ int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, co
         r += dr;
         c += dc;
     }
-    totalScore += (mainWordScore * mainWordMultiplier);
+
+    if (move.word.length() > 1) {
+        totalScore += (mainWordScore * mainWordMultiplier);
+    }
 
     // 3. Bingo bonus (50+ for using all 7 tiles)
     if (tilesPlacedCount == 7) {
@@ -143,7 +147,6 @@ int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, co
 
     return totalScore;
 }
-
 
 SearchRange getActiveBoardArea(const LetterBoard &letters) {
     int minR = 14;
@@ -239,6 +242,23 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         rackStr += t.letter;
     }
 
+    // Tracking unseen tiles
+    TileTracker tracker;
+
+    // 1. Mark board tiles
+    for (int r = 0; r < 15; r++) {
+        for (int c = 0; c < 15; c++) {
+            if (letters[r][c] != ' '){
+                tracker.markSeen(letters[r][c]);
+            }
+        }
+    }
+
+    // 2. Mark the rack
+    tracker.markSeen(rackStr);
+    // 3. Update Heuristics
+    Heuristics::updateWeights(tracker);
+
     cout << "[AI] Cutie_Pi is thinking... (Rack: " << rackStr << ")" << endl;
 
     // 1. Find all possible moves using the LETTER BOARD ( ignore bonuses for logic )
@@ -258,7 +278,18 @@ Move AIPlayer::getMove(const Board &bonusBoard,
 
     // True score for each move
     for (auto &cand : candidates ) {
-        cand.score = calculateTrueScore(cand, letters, bonusBoard);
+
+        // 1. Row points (on board)
+        int points = calculateTrueScore(cand, letters, bonusBoard);
+
+        // 2. Leave value
+        float leaveVal = 0.0f;
+        for (char t: cand.leave) {
+            leaveVal += Heuristics::getLeaveValue(t);
+        }
+
+        // 3. Final score
+        cand.score = points + (int)leaveVal;
     }
 
     // Sort by score (descending)
@@ -280,11 +311,13 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         return passMove;
     }
 
+    int displayPoints = calculateTrueScore(bestMove, letters, bonusBoard);
+
     // Print status
     cout << "[AI] Found " << candidates.size() << " moves in " << duration.count() << " micro seconds." << endl;
     cout << "[AI] Play: " << bestMove.word
          << " (Send: " << engineMove.word << " @" << engineMove.row << "," << engineMove.col << ")"
-         << " (" << bestMove.score << " est. pts)" << endl;
+         << " (Score: " << displayPoints << " + leave)" << endl;
 
     // Construct the Move object
     Move result;
@@ -376,15 +409,24 @@ void AIPlayer::recursiveSearch(int nodeIdx,
 
     // Can stop if we formed a valid word AND (we are at the edge OR next square is empty)
     bool atEdge = (col >= 15);
-    bool nextSquareEmpty = (col < 15 && letters[this->currentRow][col] != ' ');
+    bool nextSquareEmpty = atEdge || (letters[this->currentRow][col] == ' ');
 
-    if ((isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
+    if (nextSquareEmpty && (isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
         int startCol = col - currentWord.length();
         // Coordinate fix
         int finalRow = this->currentIsHorizontal ? this->currentRow : startCol;
         int finalCol = this->currentIsHorizontal ? startCol : this->currentRow;
+
+        // Bounds check for safety
         if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
-            candidates.push_back({finalRow, finalCol, currentWord, 0, this->currentIsHorizontal});
+            candidates.push_back({
+                finalRow,
+                finalCol,
+                currentWord,
+                0,
+                this->currentIsHorizontal,
+                currentRack
+            });
         }
     }
 

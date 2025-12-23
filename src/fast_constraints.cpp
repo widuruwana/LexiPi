@@ -43,7 +43,7 @@ CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int 
 
     for (char tryLet = 'A'; tryLet <= 'Z'; tryLet++) {
         tempWord.clear();
-        for (int i = startRow; i < endRow; i++) {
+        for (int i = startRow; i <= endRow; i++) {
             if (i == row) {
                 tempWord += tryLet;
             } else {

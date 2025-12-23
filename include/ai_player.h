@@ -14,6 +14,7 @@ struct MoveCandidate {
     string word;
     int score;
     bool isHorizontal;
+    string leave; // Remaining tiles
 };
 
 class AIPlayer : public PlayerController {
