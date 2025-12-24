@@ -4,10 +4,11 @@
 #include "dawg.h"
 #include "fast_constraints.h"
 #include "rack.h"
+#include "board.h"
 #include <vector>
 #include <string>
 
-//using namespace std;
+using namespace std;
 
 struct MoveCandidate {
     int row, col;
@@ -41,21 +42,7 @@ private:
     int currentRow;
     bool currentIsHorizontal;
 
-    // Helper struct for engine translation
-    struct DifferentialMove {
-        int row, col;
-        string word;
-    };
-
-    // Calculate the correct engine input (skip existing tiles, shifts start coord)
-    DifferentialMove calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove);
-
-    // The solver functions
-    void findAllMoves(const LetterBoard &letters, const TileRack &rack);
-
-    void solveRow(int rowIdx, const LetterBoard &letters,
-                  const TileRack &rack, bool isHorizontal, bool isEmptyBoard);
-
+    /*
     // Recursive "Tunneling" function
     // nodeIdx: Current node in DAWG
     // col: Current column on board
@@ -72,4 +59,35 @@ private:
                          const LetterBoard &letters,
                          bool isEmptyBoard,
                          bool tilesPlaced);
+    */
+
+    // The solver functions
+    void findAllMoves(const LetterBoard &letters, const TileRack &rack);
+
+    // The GADDAG Entry Point: Starts searches at "Anchor" squares
+    void genMovesGADDAG(int row, const LetterBoard &board, const TileRack &rack,
+                        const RowConstraint &constraints, bool isHorizontal);
+
+    // GADDAG Traversal: Going "Backwards" (Left/Up) through the graph
+    void goLeft(int row, int col, int node, const RowConstraint &constraints,
+                uint32_t rackMask, std::string currentRack, std::string wordSoFar,
+                const LetterBoard &board, bool isHoriz, int anchorCol);
+
+    // GADDAG Traversal: Going "Forwards" (Right/Down) after hitting a separator
+    void goRight(int row, int col, int node, const RowConstraint &constraints,
+                 uint32_t rackMask, std::string currentRack, std::string wordSoFar,
+                 const LetterBoard &board, bool isHoriz, int anchorCol);
+
+    // Helper struct for engine translation
+    // Covert "formed word" -> "tiles playing"
+    struct DifferentialMove {
+        int row, col;
+        string word;
+    };
+
+    // Calculate the correct engine input (skip existing tiles, shifts start coord)
+    DifferentialMove calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove);
+
+    void solveRow(int rowIdx, const LetterBoard &letters,
+                  const TileRack &rack, bool isHorizontal, bool isEmptyBoard);
 };

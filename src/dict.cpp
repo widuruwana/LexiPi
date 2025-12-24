@@ -44,6 +44,9 @@ string getExecutableDirectory() {
 */
 
 bool loadDictionary(const string &filename) {
+
+    if (gDawg.loadBinary("gaddag.bin")){}
+
     vector<string> searchPaths = {
         "",
         "data/",
@@ -102,10 +105,13 @@ bool loadDictionary(const string &filename) {
         }
     }
 
-    cout << "\nLoaded " << gDictionary.size() << " words from " << foundPath << "\n";
+    // Only build GADDAG if we didnt load it from binary
+    if (gDawg.nodes.empty()) {
+        gDawg.buildFromWordList(wordList);
+        gDawg.saveBinary("gaddag.bin"); // Cache it for next time
+    }
 
-    // Passing the word list to DAWG compiler
-    gDawg.buildFromWordList(wordList);
+    cout << "\nLoaded " << gDictionary.size() << " words from " << foundPath << "\n";
 
     return true;
 }

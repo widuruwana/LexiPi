@@ -8,6 +8,8 @@
 using namespace std;
 using namespace std::chrono;
 
+const int SEPARATOR = 26;
+
 // Helper to calculate the Rack Mask (which letters do we physically have?)
 uint32_t getRackMask(const string &rackStr) {
     uint32_t mask = 0;
@@ -343,7 +345,11 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
 
     // Horizontal Rows
     for (int r = range.minRow; r <= range.maxRow; r++) {
-        solveRow(r, letters, rack, true, range.isEmpty);
+        // Generate hybrid constrains (edgeMasks)
+        RowConstraint constraints = ConstraintGenerator::generateRowConstraint(letters, r);
+        genMovesGADDAG(r, letters, rack, constraints, true);
+
+        //solveRow(r, letters, rack, true, range.isEmpty);
     }
 
     // Verticle columns (transposed)
@@ -356,11 +362,239 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
     }
 
     for (int c = range.minCol; c <= range.maxCol; c++) {
-        // When solving vertically, 'rowIdx' passed to solveRow is actually the COLUMN index
-        solveRow(c, transposed, rack, false, range.isEmpty);
+        // Generate hybrid constrains for transposed row (originally a column)
+        RowConstraint constraints = ConstraintGenerator::generateRowConstraint(transposed, c);
+        genMovesGADDAG(c, transposed, rack, constraints, false);
     }
 }
 
+void AIPlayer::genMovesGADDAG(int row,
+                              const LetterBoard &board,
+                              const TileRack &rack,
+                              const RowConstraint &constraints,
+                              bool isHorizontal) {
+    string rackStr = "";
+    for (const Tile &t : rack) rackStr += t.letter;
+
+    // Identify Anchors: empty squares adjacent to existing tiles
+    for (int c = 0; c < 15; c++) {
+
+        // Optimization: Only starting generation at an "Anchor"
+        bool isAnchor = false;
+
+        // Not an anchor if its already occupied
+        if (board[row][c] != ' ') continue;
+
+        // Checking neighbors
+        if (c > 0 && board[row][c-1] != ' ') isAnchor = true;
+        if (c < 14 && board[row][c+1] != ' ') isAnchor = true;
+        if (constraints.masks[c] != MASK_ANY) isAnchor = true; // Vertical neighbor exists
+
+        // Empty board ( center star is the only anchor)
+        if (row == 7 && c == 7 && !isAnchor) {
+            // Check if board is truly empty
+            isAnchor = true;
+        }
+
+        if (!isAnchor) continue;
+
+        // Start GADDAG search at this achor (going left)
+        // Passing the rack mask for speed
+        goLeft(row, c, gDawg.rootIndex, constraints, getRackMask(rackStr), rackStr, "", board, isHorizontal, c);
+    }
+}
+
+void AIPlayer::goLeft(int row,
+                      int col,
+                      int node,
+                      const RowConstraint &constraints,
+                      uint32_t rackMask,
+                      string currentRack,
+                      string wordSoFar,
+                      const LetterBoard &board,
+                      bool isHoriz,
+                      int anchorCol) {
+    // Process the current node (Can we stop going left?)
+    // If we have a seperate edge here, it means we can turn around and go right
+    // in GADDAG the seperator is an edge to a new node.
+    int sepIndex = SEPARATOR;
+    if ((gDawg.nodes[node].edgeMask >> sepIndex) & 1) {
+        int separatorNode = gDawg.getChild(node, sepIndex);
+
+        // we have reversed prefix (ex: "VER")
+        string correctedPrefix = wordSoFar;
+
+        // Reversing it to get actual prefix (ex: "REV")
+        reverse(correctedPrefix.begin(), correctedPrefix.end());
+
+        // Send it to goRight
+        goRight(row, anchorCol + 1, separatorNode, constraints, rackMask,
+            currentRack, correctedPrefix, board, isHoriz, anchorCol);
+    }
+
+    // 2. Continue Going Left?
+    if (col < 0) return; // Hit edge
+
+    // Get constraints for this square
+    char boardChar = (col >= 0) ? board[row][col] : ' ';
+    uint32_t boardMask = (col >= 0) ? constraints.masks[col] : 0;
+
+    // Calculate effective mask
+    uint32_t dictMask = gDawg.nodes[node].edgeMask;
+    uint32_t effectiveMask = dictMask;
+
+    if (boardChar != ' ') {
+        // Square is occupied. We MUST match the board letter.
+        int charIdx = boardChar - 'A';
+        if (!((effectiveMask >> charIdx) & 1)) return; // Dict doesn't have this letter
+
+        // Recurse with that letter
+        int nextNode = gDawg.getChild(node, charIdx);
+        goLeft(row, col - 1, nextNode, constraints, rackMask,
+            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol);
+    }
+    else {
+        // Square is empty. We place a tile.
+        // Hybrid Check: Dict & Rack & Vertical_Constraints
+        effectiveMask &= (rackMask & boardMask);
+
+        // Iterate set bits (optimization)
+        while (effectiveMask) {
+            int i = __builtin_ctz(effectiveMask); // Get index of first set bit
+            char letter = (char)('A' + i);
+
+            uint32_t mask = (1 << i) - 1;
+            int offset = __builtin_popcount(gDawg.nodes[node].edgeMask & mask);
+            int nextNode = gDawg.childrenPool[gDawg.nodes[node].firstChildIndex + offset];
+
+            if ( (gDawg.nodes[nextNode].subtreeMask & rackMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
+                //  Oracle: You have no tiles for anything down this path. Prune it
+                effectiveMask &= ~(1 << i);
+                continue;
+            }
+
+            // Handle Rack (remove tile)
+            size_t found = currentRack.find(letter);
+            bool isBlank = (found == string::npos) && (currentRack.find('?') != string::npos);
+
+            if (found != string::npos) {
+                string nextRack = currentRack;
+                nextRack.erase(found, 1);
+
+                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack),
+                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol);
+            }else if (isBlank) {
+                // Blank handling
+                string nextRack = currentRack;
+                size_t b = nextRack.find('?');
+                nextRack.erase(b, 1);
+                char blankChar = tolower(letter); // Mark as blank
+
+                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack),
+                    nextRack, wordSoFar + blankChar, board, isHoriz, anchorCol);
+            }
+
+            effectiveMask &= ~(1 << i); // Clear bit and continue
+        }
+    }
+}
+
+void AIPlayer::goRight(int row,
+                       int col,
+                       int node,
+                       const RowConstraint &constraints,
+                       uint32_t rackMask,
+                       string currentRack,
+                       string wordSoFar,
+                       const LetterBoard &board,
+                       bool isHoriz,
+                       int anchorCol) {
+    // 1. Check if we formed a valid word
+    if (gDawg.nodes[node].isEndOfWord) {
+        // Valid word!
+        // We need to verify we aren't butting up against another tile
+        // Standard check: is next square empty?
+        bool validEnd = ((col > 14) || (board[row][col] == ' '));
+
+        if (validEnd) {
+            // Reconstruct the full word
+            string finalWord = wordSoFar;
+
+            // Calculate start row/col based on length
+            int len = finalWord.length();
+            int startC = col - len;
+
+            int rFinal = isHoriz ? row : startC;
+            int cFinal = isHoriz ? startC : row;
+
+            candidates.push_back({
+                rFinal,
+                cFinal,
+                finalWord,
+                0,
+                isHoriz,
+                currentRack
+            });
+        }
+    }
+
+    if (col > 14) return;
+
+    // 2. Continue Going Right
+    char boardChar = board[row][col];
+    uint32_t boardMask = constraints.masks[col];
+    uint32_t dictMask = gDawg.nodes[node].edgeMask;
+    uint32_t effectiveMask = dictMask;
+
+    if (boardChar != ' ') {
+        // Occupied
+        int charIdx = boardChar - 'A';
+        if (!((effectiveMask >> charIdx) & 1)) return;
+
+        int nextNode = gDawg.getChild(node, charIdx);;
+
+        goRight(row, col + 1, nextNode, constraints, rackMask,
+            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol);
+    } else {
+        // Empty
+        effectiveMask &= (rackMask & boardMask);
+
+        while (effectiveMask) {
+            int i = __builtin_ctz(effectiveMask);
+            char letter = (char)('A' + i);
+
+            uint32_t mask = (1 << i) - 1;
+            int offset = __builtin_popcount(gDawg.nodes[node].edgeMask & mask);
+            int nextNode = gDawg.childrenPool[gDawg.nodes[node].firstChildIndex + offset];
+
+            if ( (gDawg.nodes[nextNode].subtreeMask & rackMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
+                //  Oracle: You have no tiles for anything down this path. Prune it
+                effectiveMask &= ~(1 << i);
+                continue;
+            }
+
+            size_t found = currentRack.find(letter);
+            bool isBlank = (found == string::npos) && (currentRack.find('?') != string::npos);
+
+            if (found != string::npos) {
+                string nextRack = currentRack;
+                nextRack.erase(found, 1);
+                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack),
+                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol);
+
+            } else if (isBlank) {
+                string nextRack = currentRack;
+                size_t b = nextRack.find('?');
+                nextRack.erase(b, 1);
+                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack),
+                    nextRack, wordSoFar + (char)tolower(letter), board, isHoriz, anchorCol);
+            }
+            effectiveMask &= ~(1 << i);
+        }
+    }
+}
+
+/*
 void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters,
                         const TileRack &rack, bool isHorizontal, bool isEmptyBoard) {
 
@@ -434,9 +668,9 @@ void AIPlayer::recursiveSearch(int nodeIdx,
     if (col >= 15) return;
 
     // --- TRIPLE CONSTRAINT INTERSECTION ---
-    // 1. Dictionary says: "Words exist with these letters"
-    // 2. Board says: "Only these letters fit here"
-    // 3. Rack says: "I only have these letters" (Only effective if no blank)
+    // 1. Dictionary: "Words exist with these letters"
+    // 2. Board: "Only these letters fit here"
+    // 3. Rack: "I only have these letters" (Only effective if no blank)
     uint32_t dictMask = gDawg.nodes[nodeIdx].edgeMask;
     uint32_t boardMask = constraints.masks[col];
 
@@ -506,6 +740,7 @@ void AIPlayer::recursiveSearch(int nodeIdx,
         }
     }
 }
+*/
 
 
 
