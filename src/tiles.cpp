@@ -127,7 +127,7 @@ void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool rev
     // if the real bag has 7 or fewer tiles, unseen exactly what the opponent has
     if (revealOpponentRack) {
         if (!opponentRack.empty() && unseenCount <= 7) {
-            cout << "\n(Endgame) Oppnent rack size: " << unseenCount << endl;
+            cout << "\n(Endgame) Opponent rack size: " << unseenCount << endl;
         }
     }
 }

@@ -134,6 +134,7 @@ void runPvE() {
                 lastMove.exists = false;
                 canChallenge = false;
 
+                // Increment pass count for exchange
                 players[currentPlayer].passCount++;
 
                 printBoard(bonusBoard, letters);

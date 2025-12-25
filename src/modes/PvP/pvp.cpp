@@ -125,6 +125,9 @@ void runPvP() {
                 lastMove.exists = false;
                 canChallenge = false;
 
+                // Increment pass count for exchange
+                players[currentPlayer].passCount++;
+
                 printBoard(bonusBoard, letters);
                 cout << "Scores: Player 1 = " << players[0].score
                      << " | Player 2 = " << players[1].score << endl;

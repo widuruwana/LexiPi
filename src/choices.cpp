@@ -49,6 +49,30 @@ bool executePlayMove(Board &bonusBoard,
     );
 
     if (result.success) {
+        // Validate word and cross-words against dictionary
+        string mainWord = extractMainWord(letters, move.row, move.col, move.horizontal);
+        vector<string> crossWords = crossWordList(letters, lastSnapShot.letters,
+                                                   move.row, move.col, move.horizontal);
+        
+        bool allValid = isValidWord(mainWord);
+        for (const string& cw : crossWords) {
+            if (!isValidWord(cw)) {
+                allValid = false;
+                break;
+            }
+        }
+        
+        if (!allValid) {
+            cout << "Invalid word(s) played. Move rejected." << endl;
+            cout << "Main word: " << mainWord << endl;
+            for (const string& cw : crossWords) {
+                if (!isValidWord(cw)) {
+                    cout << "Invalid cross-word: " << cw << endl;
+                }
+            }
+            return false;
+        }
+        
         cout << "Move played. Score: " << result.score << endl;
         currentPlayer.score += result.score;
 
@@ -90,8 +114,8 @@ bool handleSixPassEndGame(Player players[2]) {
             rackScore[i] += tile.points;
         }
     }
-    players[0].score -= rackScore[0] * 2;
-    players[1].score -= rackScore[1] * 2;
+    players[0].score -= rackScore[0];
+    players[1].score -= rackScore[1];
 
     cout << "\nGame Over.\n";
     cout << "Final Scores:\n";

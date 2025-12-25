@@ -343,6 +343,19 @@ MoveResult playWord(const Board &bonusBoard, LetterBoard &letters, BlankBoard &b
         nt.rackIndex = idx;
     }
 
+    // Check that at least one non-blank tile is being placed
+    bool hasNonBlank = false;
+    for (const auto &nt : newTiles) {
+        if (!nt.isBlank) {
+            hasNonBlank = true;
+            break;
+        }
+    }
+    if (!hasNonBlank) {
+        res.errorMessage = "Must place at least one non-blank tile";
+        return res;
+    }
+
     // Connectivity/ "Red Domain" Check
 
     // Detecting if the board already has any tiles (pre-move)
