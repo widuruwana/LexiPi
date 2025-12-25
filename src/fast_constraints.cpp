@@ -179,6 +179,35 @@ RowConstraint ConstraintGenerator::generateRowConstraint(const LetterBoard &lett
 
 }
 
+bool ConstraintGenerator::validateCrossWord(const LetterBoard &letters, int row, int col, char letter) {
+    // Check if there are any vertical neighbors
+    bool hasUp = (row > 0 && letters[row-1][col] != ' ');
+    bool hasDown = (row < 14 && letters[row+1][col] != ' ');
+    
+    // If no vertical neighbors, no cross-word to validate
+    if (!hasUp && !hasDown) {
+        return true;
+    }
+    
+    // Build the cross-word parts
+    string upperPart;
+    int r = row - 1;
+    while (r >= 0 && letters[r][col] != ' ') {
+        upperPart.insert(0, 1, letters[r][col]);
+        r--;
+    }
+    
+    string lowerPart;
+    r = row + 1;
+    while (r < 15 && letters[r][col] != ' ') {
+        lowerPart += letters[r][col];
+        r++;
+    }
+    
+    // Validate the complete cross-word
+    return isValidCrossWord(upperPart, letter, lowerPart);
+}
+
 
 
 

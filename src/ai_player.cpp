@@ -2,6 +2,7 @@
 #include "../include/heuristics.h" // For scoring
 #include "../include/tile_tracker.h"
 #include "../include/endgame_solver.h"
+#include "../include/fast_constraints.h"
 #include <algorithm>
 #include <iostream>
 #include <chrono>
@@ -28,6 +29,32 @@ uint32_t getRackMask(const string &rackStr) {
     if (hasBlank) return 0xFFFFFFFF; // Blank can be anything
 
     return mask;
+}
+
+// Helper to validate that a move candidate forms valid cross-words
+// Returns true if all cross-words are valid, false otherwise
+static bool validateMoveCrossWords(const LetterBoard &letters, const MoveCandidate &candidate) {
+    int r = candidate.row;
+    int c = candidate.col;
+    int dr = candidate.isHorizontal ? 0 : 1;
+    int dc = candidate.isHorizontal ? 1 : 0;
+    
+    // For each letter in the word, check if it would form a valid cross-word
+    for (size_t i = 0; i < candidate.word.length(); i++) {
+        char letter = candidate.word[i];
+        int currR = r + (dr * i);
+        int currC = c + (dc * i);
+        
+        // Only validate if this is a newly placed tile (not already on board)
+        if (letters[currR][currC] == ' ') {
+            // Check cross-word validity
+            if (!ConstraintGenerator::validateCrossWord(letters, currR, currC, letter)) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
 }
 
 // Optimization: Prune the search space to boundingBox + 1
@@ -1128,7 +1155,11 @@ void AIPlayer::goRightParallel(int nodeIdx, int currRow, int currCol,
             int finalCol = isHorizontal ? finalStartCol : currRow;
             
             if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
-                results.push_back({finalRow, finalCol, currentWord, 0, isHorizontal});
+                // Validate cross-words before adding candidate
+                MoveCandidate candidate = {finalRow, finalCol, currentWord, 0, isHorizontal};
+                if (validateMoveCrossWords(letters, candidate)) {
+                    results.push_back(candidate);
+                }
             }
         }
     }
@@ -1352,7 +1383,11 @@ void AIPlayer::goRight(int nodeIdx, int currRow, int currCol,
             
             // Verify bounds
             if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
-                candidates.push_back({finalRow, finalCol, currentWord, 0, isHorizontal});
+                // Validate cross-words before adding candidate
+                MoveCandidate candidate = {finalRow, finalCol, currentWord, 0, isHorizontal};
+                if (validateMoveCrossWords(letters, candidate)) {
+                    candidates.push_back(candidate);
+                }
             }
         }
     }

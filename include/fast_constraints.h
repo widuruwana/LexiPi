@@ -49,6 +49,10 @@ public:
     // 'rowIdx' is the row we want to play on (0-14)
     static RowConstraint generateRowConstraint(const LetterBoard &letters, int rowIdx);
 
+    // Validates that placing a letter at (row, col) forms a valid cross-word
+    // Returns true if valid, false otherwise
+    static bool validateCrossWord(const LetterBoard &letters, int row, int col, char letter);
+
 private:
     // Calculates the "Cross-check" (vertical constraint) for a single cell.
     // Returns a mask of letters that form valid vertical works.
