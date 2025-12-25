@@ -3,6 +3,9 @@
 #include "../include/tile_tracker.h"
 #include "../include/endgame_solver.h"
 #include "../include/fast_constraints.h"
+#include "../include/evaluator.h"
+#include "../include/logger.h"
+#include "../include/assertions.h"
 #include <algorithm>
 #include <iostream>
 #include <chrono>
@@ -360,8 +363,8 @@ float AIPlayer::evaluate2Ply(const MoveCandidate &myMove,
     // }
     // float myLeaveValue = calculateRackLeave(myRemainingRack);
     
-    // Use EvaluationModel
-    EvaluationModel& model = (externalModel != nullptr) ? *externalModel : evalModel;
+    // Use singleton evaluator
+    EvaluationModel& model = Evaluator::getInstance().getModel();
     float myEval = model.evaluate(afterMyMove.scoreGained, afterMyMove.myRack, afterMyMove.letters);
 
     // OPTIMIZATION 1: Early exit if opponent has no tiles (endgame)
@@ -440,7 +443,7 @@ float AIPlayer::evaluate3Ply(const MoveCandidate &myMove,
     // for (const Tile &t : afterMyMove.myRack) myRemainingRack += t.letter;
     // float myLeaveValue = calculateRackLeave(myRemainingRack);
     
-    EvaluationModel& model = (externalModel != nullptr) ? *externalModel : evalModel;
+    EvaluationModel& model = Evaluator::getInstance().getModel();
     float myEval = model.evaluate(afterMyMove.scoreGained, afterMyMove.myRack, afterMyMove.letters);
 
     if (oppRack.empty()) {
@@ -592,13 +595,9 @@ Move AIPlayer::getMove(const Board &bonusBoard,
                        const Player &opponent,
                        int PlayerNum) {
 
-    // Load weights if not already loaded (or reload to allow tuning)
-    // For now, we load once or every turn? Loading every turn allows live tuning.
-    if (externalModel == nullptr && !weightsLoaded) {
-        evalModel.loadWeights("data/weights.txt");
-        weightsLoaded = true;
-    }
-
+    // Use singleton evaluator (weights loaded once at startup)
+    EvaluationModel& model = Evaluator::getInstance().getModel();
+    
     // To measure the time spent processing each turn
     auto startTime = high_resolution_clock::now();
 
@@ -614,7 +613,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         rackStr += t.letter;
     }
 
-    cout << "[AI] Cutie_Pi is thinking... (Rack: " << rackStr << ")" << endl;
+    LOG_INFO("Cutie_Pi is thinking... (Rack: ", rackStr, ")");
     
     // Track my rack tiles as seen
     tileTracker.markDrawn(rackStr);
@@ -624,7 +623,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     bool isCritical = isCriticalPosition(me, opponent, bag);
     
     if (isEndgameState) {
-        cout << "[AI] ENDGAME detected - optimizing final moves" << endl;
+        LOG_INFO("ENDGAME detected - optimizing final moves");
         EndgameSolver solver(bonusBoard);
         // Assuming we know opponent's rack perfectly in endgame for now (or use tile tracker to guess)
         // For true endgame solver, we need to know opponent's rack.
@@ -642,7 +641,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         return solver.solveEndgame(letters, blankBoard, myRack, oppRack, me.score, opponent.score);
     }
     if (isCritical) {
-        cout << "[AI] CRITICAL position - using deeper analysis" << endl;
+        LOG_INFO("CRITICAL position - using deeper analysis");
     }
 
     // 1. Find all possible moves using the LETTER BOARD ( ignore bonuses for logic )
@@ -651,10 +650,9 @@ Move AIPlayer::getMove(const Board &bonusBoard,
 
     // 2. Pick the best one
     if (candidates.empty()) {
-        cout << "[AI] No moves found. Passing." << endl;
+        LOG_INFO("No moves found. Passing.");
         if (isCritical) {
-             cout << "[AI] Debug: Board might be blocked or generator failed." << endl;
-             // Optional: Print board state here if needed
+             LOG_DEBUG("Board might be blocked or generator failed.");
         }
         Move passMove;
         passMove.type = MoveType::PASS;
@@ -673,7 +671,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     }
 
     if (isOpeningMove) {
-        cout << "[AI] Opening move - applying opening book strategy" << endl;
+        LOG_INFO("Opening move - applying opening book strategy");
         
         // Opening strategy: Prioritize long words through center with premium square usage
         for (auto &cand : candidates) {
@@ -774,10 +772,10 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         // Calculate remaining rack after this move
         SimulatedState simState = simulateMove(cand, bonusBoard, letters, blankBoard, bag, myRack);
         
-        // Use EvaluationModel for sorting candidates too
+        // Use singleton evaluator for sorting candidates too
         float evalScore = 0.0f;
         if (simState.success) {
-            EvaluationModel& model = (externalModel != nullptr) ? *externalModel : evalModel;
+            EvaluationModel& model = Evaluator::getInstance().getModel();
             evalScore = model.evaluate(baseScore, simState.myRack, simState.letters);
         }
         
@@ -798,7 +796,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
                         min(TOP_K_CANDIDATES, static_cast<int>(candidates.size()));
     
     if (isCritical) {
-        cout << "[AI] Evaluating " << numToEvaluate << " candidates (critical position)" << endl;
+        LOG_DEBUG("Evaluating ", numToEvaluate, " candidates (critical position)");
     }
     
     // Parallel evaluation using std::async
@@ -850,7 +848,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     DifferentialMove engineMove = calculateEngineMove(letters, bestMove);
 
     if (engineMove.row == -1 || engineMove.word.empty()) {
-        cout << "[AI] Error: Move exists, but its already on board and require no Tiles. Passing" << endl;
+        LOG_WARN("Move exists but already on board - Passing");
         Move passMove;
         passMove.type = MoveType::PASS;
         return passMove;
@@ -860,17 +858,17 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     tileTracker.markPlayed(engineMove.word);
     
     // Print status
-    cout << "[AI] Found " << candidates.size() << " moves, evaluated top "
-         << numToEvaluate << " (MC/3-ply/2-ply) in " << duration.count() << " microseconds." << endl;
-    cout << "[AI] Play: " << bestMove.word
-         << " (Send: " << engineMove.word << " @" << engineMove.row << "," << engineMove.col << ")"
-         << " (eval: " << bestEval << ")" << endl;
+    LOG_INFO("Found ", candidates.size(), " moves, evaluated top ",
+         numToEvaluate, " (MC/3-ply/2-ply) in ", duration.count(), " microseconds.");
+    LOG_INFO("Play: ", bestMove.word,
+         " (Send: ", engineMove.word, " @", engineMove.row, ",", engineMove.col, ")",
+         " (eval: ", bestEval, ")");
     
     // Show tile tracking info in critical situations
     if (isCritical || isEndgameState) {
-        cout << "[AI] Tiles remaining unseen: " << tileTracker.getTotalUnseen() << endl;
+        LOG_DEBUG("Tiles remaining unseen: ", tileTracker.getTotalUnseen());
         if (tileTracker.hasBlankUnseen()) {
-            cout << "[AI] WARNING: Blank(s) still unseen!" << endl;
+            LOG_WARN("Blank(s) still unseen!");
         }
     }
 

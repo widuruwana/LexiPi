@@ -39,4 +39,19 @@ add_executable(scrabblePi src/board.cpp
         src/modes/AiAi/aiai.cpp
         include/modes/AiAi/aiai.h
         src/modes/Training/training_mode.cpp
-        include/modes/Training/training_mode.h)
+        include/modes/Training/training_mode.h
+        include/logger.h
+        src/logger.cpp
+        include/evaluator.h
+        src/evaluator.cpp
+        include/ruleset.h
+        src/ruleset.cpp
+        include/random.h
+        src/random.cpp
+        include/move_validator.h
+        src/move_validator.cpp
+        include/board_state.h
+        src/board_state.cpp
+        include/move_key.h
+        src/move_key.cpp
+        include/assertions.h)

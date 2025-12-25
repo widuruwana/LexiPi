@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 
 #include "../include/dict.h"
 #include "../include/modes/AiAi/aiai.h"
@@ -6,12 +7,39 @@
 #include "../include/modes/Home/home.h"
 #include "../include/modes/PvE/pve.h"
 #include "../include/modes/Training/training_mode.h"
+#include "../include/evaluator.h"
+#include "../include/ruleset.h"
+#include "../include/random.h"
+#include "../include/logger.h"
 
 using namespace std;
 
 int main() {
-
-    loadDictionary("csw24.txt");
+    // Initialize logging
+    Logger::getInstance().setLevel(LogLevel::INFO);
+    LOG_INFO("=== LEXI_PI Starting ===");
+    
+    // Initialize RNG with current time (or fixed seed for determinism)
+    uint64_t seed = static_cast<uint64_t>(
+        std::chrono::system_clock::now().time_since_epoch().count());
+    Random::getInstance().seed(seed);
+    LOG_INFO("RNG initialized with seed: ", seed);
+    
+    // Initialize ruleset
+    Ruleset::getInstance().initialize("CSW24", 50, 7, 15);
+    
+    // Initialize evaluator (loads weights once)
+    if (!Evaluator::getInstance().initialize("data/weights.txt")) {
+        LOG_WARN("Failed to load weights, using defaults");
+    }
+    
+    // Load dictionary (cached in DAWG)
+    if (!loadDictionary("csw24.txt")) {
+        LOG_ERROR("Failed to load dictionary!");
+        return 1;
+    }
+    
+    LOG_INFO("=== Initialization Complete ===");
 
     // selection menu
     while (true) {
