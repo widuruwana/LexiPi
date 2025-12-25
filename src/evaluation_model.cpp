@@ -10,29 +10,29 @@ using namespace std;
 EvaluationModel::EvaluationModel() {
     // Default weights (baseline heuristics)
     weights["SCORE_WEIGHT"] = 1.0f;
-    weights["LEAVE_WEIGHT"] = 1.0f;
-    weights["BALANCE_WEIGHT"] = 1.0f;
-    weights["SYNERGY_WEIGHT"] = 1.0f;
+    weights["LEAVE_WEIGHT"] = 4.0f;
+    weights["BALANCE_WEIGHT"] = 2.0f;
+    weights["SYNERGY_WEIGHT"] = 2.0f;
 
     // Default Leave Values (Approximation of static heuristics)
-    weights["LEAVE_A"] = 2.0f; weights["LEAVE_B"] = -1.5f; weights["LEAVE_C"] = -0.5f; weights["LEAVE_D"] = 0.5f; weights["LEAVE_E"] = 4.0f;
-    weights["LEAVE_F"] = -1.5f; weights["LEAVE_G"] = -1.0f; weights["LEAVE_H"] = 1.5f; weights["LEAVE_I"] = 1.0f; weights["LEAVE_J"] = -2.5f;
-    weights["LEAVE_K"] = -2.0f; weights["LEAVE_L"] = 1.0f; weights["LEAVE_M"] = -0.5f; weights["LEAVE_N"] = 1.5f; weights["LEAVE_O"] = -0.5f;
-    weights["LEAVE_P"] = -1.0f; weights["LEAVE_Q"] = -6.0f; weights["LEAVE_R"] = 5.0f; weights["LEAVE_S"] = 9.0f; weights["LEAVE_T"] = 2.0f;
-    weights["LEAVE_U"] = -1.0f; weights["LEAVE_V"] = -3.0f; weights["LEAVE_W"] = -2.0f; weights["LEAVE_X"] = -2.5f; weights["LEAVE_Y"] = -1.5f;
-    weights["LEAVE_Z"] = -1.5f;
-    weights["LEAVE_BLANK"] = 30.0f;
+    weights["LEAVE_A"] = 3.0f; weights["LEAVE_B"] = -2.0f; weights["LEAVE_C"] = -1.0f; weights["LEAVE_D"] = 1.0f; weights["LEAVE_E"] = 5.0f;
+    weights["LEAVE_F"] = -2.0f; weights["LEAVE_G"] = -1.5f; weights["LEAVE_H"] = 1.0f; weights["LEAVE_I"] = 2.0f; weights["LEAVE_J"] = -3.0f;
+    weights["LEAVE_K"] = -2.5f; weights["LEAVE_L"] = 1.5f; weights["LEAVE_M"] = -1.0f; weights["LEAVE_N"] = 2.0f; weights["LEAVE_O"] = -1.0f;
+    weights["LEAVE_P"] = -1.5f; weights["LEAVE_Q"] = -8.0f; weights["LEAVE_R"] = 6.0f; weights["LEAVE_S"] = 10.0f; weights["LEAVE_T"] = 3.0f;
+    weights["LEAVE_U"] = -1.5f; weights["LEAVE_V"] = -3.5f; weights["LEAVE_W"] = -2.5f; weights["LEAVE_X"] = -3.0f; weights["LEAVE_Y"] = -2.0f;
+    weights["LEAVE_Z"] = -2.0f;
+    weights["LEAVE_BLANK"] = 40.0f;
 
     // Penalties
-    weights["PENALTY_NO_VOWELS"] = -5.0f;
-    weights["PENALTY_NO_CONSONANTS"] = -5.0f;
-    weights["PENALTY_VOWEL_HEAVY"] = -2.0f;
-    weights["PENALTY_CONSONANT_HEAVY"] = -2.0f;
-    weights["PENALTY_Q_NO_U"] = -6.0f;
+    weights["PENALTY_NO_VOWELS"] = -10.0f;
+    weights["PENALTY_NO_CONSONANTS"] = -10.0f;
+    weights["PENALTY_VOWEL_HEAVY"] = -5.0f;
+    weights["PENALTY_CONSONANT_HEAVY"] = -5.0f;
+    weights["PENALTY_Q_NO_U"] = -10.0f;
 
     // Synergies
-    weights["BONUS_ING"] = 3.0f;
-    weights["BONUS_Q_WITH_U_ON_BOARD"] = 4.0f; // Mitigates the Q penalty if U is accessible
+    weights["BONUS_ING"] = 5.0f;
+    weights["BONUS_Q_WITH_U_ON_BOARD"] = 6.0f; // Mitigates the Q penalty if U is accessible
 }
 
 bool EvaluationModel::loadWeights(const string& filepath) {

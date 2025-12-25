@@ -119,11 +119,13 @@ Move EndgameSolver::solveEndgame(const LetterBoard& letters,
     });
 
     // Limit top moves for performance if needed, but for endgame we want accuracy
-    int movesToCheck = min((int)moves.size(), 20); 
+    // Increased from 20 to 40 for better endgame precision
+    int movesToCheck = min((int)moves.size(), 40);
 
     for (int i = 0; i < movesToCheck; ++i) {
         GameState nextState = applyMove(initialState, moves[i]);
-        int score = minimax(nextState, 4, -100000, 100000, false); // Depth 4
+        // Increased depth from 4 to 6 for deeper endgame calculation
+        int score = minimax(nextState, 6, -100000, 100000, false);
         
         if (score > bestScore) {
             bestScore = score;
@@ -190,7 +192,8 @@ int EndgameSolver::minimax(GameState& state, int depth, int alpha, int beta, boo
         return a.score > b.score;
     });
     
-    int movesToCheck = min((int)moves.size(), 10); // Pruning
+    // Increased pruning limit from 10 to 15
+    int movesToCheck = min((int)moves.size(), 15);
 
     if (isMaximizing) {
         int maxEval = -100000;

@@ -10,17 +10,17 @@ static constexpr int TILE_VALUES[26] = {
 };
 
 // Rack leave values (Strategic value of keeping a tile)
-// More balanced - less punishing for consonants, more reward for flexibility
+// Aggressively tuned for Bingo Probability
 static constexpr float LEAVE_VALUES[26] = {
-    2.0f, -1.5f, -0.5f, 0.5f, 4.0f,   // A-E (vowels more valuable)
-    -1.5f, -1.0f, 1.5f, 1.0f, -2.5f,  // F-J
-    -2.0f, 1.0f, -0.5f, 1.5f, -0.5f,  // K-O
-    -1.0f, -6.0f, 5.0f, 9.0f, 2.0f,   // P-T (S,R,T very valuable)
-    -1.0f, -3.0f, -2.0f, -2.5f, -1.5f, // U-Y
-    -1.5f                              // Z
+    3.0f, -2.0f, -1.0f, 1.0f, 5.0f,   // A-E (vowels very valuable)
+    -2.0f, -1.5f, 1.0f, 2.0f, -3.0f,  // F-J
+    -2.5f, 1.5f, -1.0f, 2.0f, -1.0f,  // K-O
+    -1.5f, -8.0f, 6.0f, 10.0f, 3.0f,  // P-T (S,R,T extremely valuable)
+    -1.5f, -3.5f, -2.5f, -3.0f, -2.0f, // U-Y
+    -2.0f                              // Z
 };
 
-static constexpr float BLANK_LEAVE_VALUE = 30.0f;  // Increased from 25
+static constexpr float BLANK_LEAVE_VALUE = 40.0f;  // Massive value for blank
 
 inline int getTileValue(char letter) {
     if (letter == ' ' || letter == '?') return 0;
@@ -57,12 +57,12 @@ inline float calculateRackLeave(const string &rackStr) {
     
     // Synergy penalties/bonuses
     if (hasQ && !hasU) {
-        total -= 6.0f; // Q without U is terrible
+        total -= 10.0f; // Q without U is terrible
     }
     
     // ING synergy
     if (hasI && hasN && hasG) {
-        total += 3.0f;
+        total += 5.0f;
     }
     
     // Vowel balance check
@@ -78,11 +78,11 @@ inline float calculateRackLeave(const string &rackStr) {
     }
     
     // Ideal balance is roughly 40-50% vowels
-    // Penalize extremes
-    if (vowels == 0 && consonants > 0) total -= 5.0f;
-    if (consonants == 0 && vowels > 0) total -= 5.0f;
-    if (vowels > 4) total -= 2.0f;
-    if (consonants > 5) total -= 2.0f;
+    // Penalize extremes heavily
+    if (vowels == 0 && consonants > 0) total -= 10.0f;
+    if (consonants == 0 && vowels > 0) total -= 10.0f;
+    if (vowels > 4) total -= 5.0f;
+    if (consonants > 5) total -= 5.0f;
     
     return total;
 }

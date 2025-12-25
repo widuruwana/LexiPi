@@ -359,8 +359,10 @@ float AIPlayer::evaluate2Ply(const MoveCandidate &myMove,
         }
     }
     
-    // Evaluation: my_eval - opponent_best_reply
-    float eval = myEval - static_cast<float>(oppBestScore);
+    // Evaluation: my_eval - (weight * opponent_best_reply)
+    // We reduce the penalty for opponent score slightly to encourage high-scoring exchanges
+    // This is risky but necessary for 600+ scores (offensive playstyle)
+    float eval = myEval - (0.8f * static_cast<float>(oppBestScore));
     
     // Apply tile tracking adjustments for strategic depth
     eval = evaluateWithTileTracking(eval, oppRack);
@@ -450,8 +452,8 @@ float AIPlayer::evaluate3Ply(const MoveCandidate &myMove,
     // Evaluation: my_score + leave - opp_score + my_counter_score
     // We might want to weight the future scores less
     float eval = myEval
-                 - static_cast<float>(oppScore)
-                 + (0.6f * static_cast<float>(myCounterScore)); // Discount future score more (be less optimistic)
+                 - (0.8f * static_cast<float>(oppScore))
+                 + (0.9f * static_cast<float>(myCounterScore)); // Be more optimistic about future scoring
                  
     return eval;
 }
@@ -862,17 +864,17 @@ float AIPlayer::evaluateWithTileTracking(float baseEval, const TileRack &oppRack
     
     // If opponent likely has bingo potential, be more defensive
     if (tileTracker.opponentHasBingoPotential(oppRack.size())) {
-        adjustment -= 10.0f;  // Reduced defensive bonus (was 15.0)
+        adjustment -= 2.0f;  // Significantly reduced defensive bonus to encourage open play
     }
     
     // Adjust based on unseen high-value tiles
     if (tileTracker.hasBlankUnseen()) {
-        adjustment -= 5.0f;  // Reduced caution (was 10.0)
+        adjustment -= 1.0f;  // Reduced caution
     }
     
     // Scale threat by how many tiles opponent has
     float threatFactor = static_cast<float>(oppRack.size()) / 7.0f;
-    adjustment -= (oppThreat * threatFactor * 0.05f); // Reduced threat scaling (was 0.1)
+    adjustment -= (oppThreat * threatFactor * 0.01f); // Minimal threat scaling
     
     return baseEval + adjustment;
 }

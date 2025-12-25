@@ -1,5 +1,6 @@
 #include "../include/fast_constraints.h"
 #include "../include/dict.h"
+#include "../include/dawg.h"
 #include <iostream>
 #include <string>
 
@@ -19,40 +20,125 @@ CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int 
         return MASK_ANY;
     }
 
-    // Now there is a neighbor, so we have to find which letters form valid words.
-    // We construct the verticle word with a "placeholder" for the current cell.
+    // GADDAG Optimization:
+    // Instead of constructing the string and querying the dictionary 26 times,
+    // we traverse the GADDAG graph to find valid letters.
 
-    // Finding the top of the verticle word.
-    int startRow = row;
-    while (startRow > 0 && letters[startRow - 1][col] != ' ') {
-        startRow--;
+    // 1. Identify Upper and Lower parts
+    string upperPart;
+    int r = row - 1;
+    while (r >= 0 && letters[r][col] != ' ') {
+        upperPart.insert(0, 1, letters[r][col]);
+        r--;
     }
 
-    // Finding the bottom
-    int endRow = row;
-    while (endRow < 14 && letters[endRow + 1][col] != ' ') {
-        endRow++;
+    string lowerPart;
+    r = row + 1;
+    while (r < 15 && letters[r][col] != ' ') {
+        lowerPart += letters[r][col];
+        r++;
     }
 
-    // Brute force trying all 26 letters in the gap
     CharMask allowed = MASK_NONE;
-    string tempWord;
 
-    // Pre-allocating space for optimization
-    tempWord.reserve(endRow - startRow + 1);
+    if (!upperPart.empty()) {
+        // Case 1: Has Upper Neighbors
+        // We use the last character of the upper part as the Anchor.
+        // Path: Anchor -> (Rest of Upper Reversed) -> Delimiter -> Candidate -> LowerPart
 
-    for (char tryLet = 'A'; tryLet <= 'Z'; tryLet++) {
-        tempWord.clear();
-        for (int i = startRow; i < endRow; i++) {
-            if (i == row) {
-                tempWord += tryLet;
-            } else {
-                tempWord += letters[i][col];
+        char anchorChar = upperPart.back();
+        string upperPrefix = upperPart.substr(0, upperPart.length() - 1);
+
+        // 1. Traverse Anchor
+        int node = gDawg.rootIndex;
+        int anchorIdx = toIdx(anchorChar);
+        if (gDawg.nodes[node].children[anchorIdx] == -1) return MASK_NONE;
+        node = gDawg.nodes[node].children[anchorIdx];
+
+        // 2. Traverse Upper Prefix (Reversed)
+        for (int i = (int)upperPrefix.length() - 1; i >= 0; i--) {
+            int idx = toIdx(upperPrefix[i]);
+            if (gDawg.nodes[node].children[idx] == -1) return MASK_NONE;
+            node = gDawg.nodes[node].children[idx];
+        }
+
+        // 3. Traverse Delimiter
+        int delimIdx = 26;
+        if (gDawg.nodes[node].children[delimIdx] == -1) return MASK_NONE;
+        node = gDawg.nodes[node].children[delimIdx];
+
+        // 4. Check Candidates
+        for (int c = 0; c < 26; c++) {
+            int childNode = gDawg.nodes[node].children[c];
+            if (childNode != -1) {
+                // Check if this candidate leads to a valid completion with LowerPart
+                if (lowerPart.empty()) {
+                    if (gDawg.nodes[childNode].isEndOfWord) {
+                        allowed |= (1 << c);
+                    }
+                } else {
+                    int curr = childNode;
+                    bool match = true;
+                    for (char l : lowerPart) {
+                        int lIdx = toIdx(l);
+                        if (gDawg.nodes[curr].children[lIdx] == -1) {
+                            match = false;
+                            break;
+                        }
+                        curr = gDawg.nodes[curr].children[lIdx];
+                    }
+                    if (match && gDawg.nodes[curr].isEndOfWord) {
+                        allowed |= (1 << c);
+                    }
+                }
             }
         }
 
-        if (isValidWord(tempWord)) {
-            allowed |= (1 << (tryLet - 'A'));
+    } else {
+        // Case 2: No Upper Neighbors (Must have Lower Neighbors)
+        // We use the first character of the lower part as the Anchor.
+        // Path: Anchor -> Candidate -> Delimiter -> Rest of Lower
+
+        char anchorChar = lowerPart.front();
+        string lowerSuffix = lowerPart.substr(1);
+
+        // 1. Traverse Anchor
+        int node = gDawg.rootIndex;
+        int anchorIdx = toIdx(anchorChar);
+        if (gDawg.nodes[node].children[anchorIdx] == -1) return MASK_NONE;
+        node = gDawg.nodes[node].children[anchorIdx];
+
+        // 2. Check Candidates (which are "Left" of anchor in GADDAG sense)
+        for (int c = 0; c < 26; c++) {
+            int childNode = gDawg.nodes[node].children[c];
+            if (childNode != -1) {
+                // 3. Traverse Delimiter
+                int delimIdx = 26;
+                int delimNode = gDawg.nodes[childNode].children[delimIdx];
+
+                if (delimNode != -1) {
+                    // 4. Traverse Rest of Lower
+                    if (lowerSuffix.empty()) {
+                        if (gDawg.nodes[delimNode].isEndOfWord) {
+                            allowed |= (1 << c);
+                        }
+                    } else {
+                        int curr = delimNode;
+                        bool match = true;
+                        for (char l : lowerSuffix) {
+                            int lIdx = toIdx(l);
+                            if (gDawg.nodes[curr].children[lIdx] == -1) {
+                                match = false;
+                                break;
+                            }
+                            curr = gDawg.nodes[curr].children[lIdx];
+                        }
+                        if (match && gDawg.nodes[curr].isEndOfWord) {
+                            allowed |= (1 << c);
+                        }
+                    }
+                }
+            }
         }
     }
 

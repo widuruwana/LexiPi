@@ -43,8 +43,8 @@ private:
     vector <MoveCandidate> candidates;
     
     // 2-ply evaluation parameters - TUNED AGGRESSION
-    static constexpr int TOP_K_CANDIDATES = 30;  // Evaluate even more options
-    static constexpr float LEAVE_WEIGHT = 2.5f;  // Slightly more conservative to ensure better racks
+    static constexpr int TOP_K_CANDIDATES = 60;  // Evaluate even more options
+    static constexpr float LEAVE_WEIGHT = 4.0f;  // Heavily prioritize rack leave for bingos
 
     // Recursion state helpers
     int currentRow;
