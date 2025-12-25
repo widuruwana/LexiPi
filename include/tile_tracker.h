@@ -84,44 +84,55 @@ public:
     }
     
     bool hasBlankUnseen() const {
-        return unseenTiles.at('?') > 0;
+        auto it = unseenTiles.find('?');
+        return (it != unseenTiles.end() && it->second > 0);
     }
     
     // Estimate opponent's threat level based on unseen tiles
     float estimateOpponentThreat() const {
+        auto getUnseen = [this](char c) -> int {
+            auto it = unseenTiles.find(c);
+            return (it != unseenTiles.end()) ? it->second : 0;
+        };
+        
         float threat = 0.0f;
         
         // High-value tiles increase threat
-        threat += unseenTiles.at('Q') * 5.0f;
-        threat += unseenTiles.at('Z') * 5.0f;
-        threat += unseenTiles.at('X') * 4.0f;
-        threat += unseenTiles.at('J') * 4.0f;
+        threat += getUnseen('Q') * 5.0f;
+        threat += getUnseen('Z') * 5.0f;
+        threat += getUnseen('X') * 4.0f;
+        threat += getUnseen('J') * 4.0f;
         
         // Blanks are very dangerous
-        threat += unseenTiles.at('?') * 15.0f;
+        threat += getUnseen('?') * 15.0f;
         
         // S tiles enable bingos
-        threat += unseenTiles.at('S') * 8.0f;
+        threat += getUnseen('S') * 8.0f;
         
         // Good bingo tiles
-        threat += unseenTiles.at('E') * 2.0f;
-        threat += unseenTiles.at('R') * 2.0f;
-        threat += unseenTiles.at('T') * 2.0f;
+        threat += getUnseen('E') * 2.0f;
+        threat += getUnseen('R') * 2.0f;
+        threat += getUnseen('T') * 2.0f;
         
         return threat;
     }
     
     // Check if opponent likely has bingo potential
     bool opponentHasBingoPotential(int oppRackSize) const {
+        auto getUnseen = [this](char c) -> int {
+            auto it = unseenTiles.find(c);
+            return (it != unseenTiles.end()) ? it->second : 0;
+        };
+        
         if (oppRackSize < 7) return false;
         
         // If blanks are unseen, bingo is possible
-        if (unseenTiles.at('?') > 0) return true;
+        if (getUnseen('?') > 0) return true;
         
         // If many good tiles unseen, bingo is likely
-        int goodTiles = unseenTiles.at('E') + unseenTiles.at('R') +
-                       unseenTiles.at('S') + unseenTiles.at('T') +
-                       unseenTiles.at('A') + unseenTiles.at('I');
+        int goodTiles = getUnseen('E') + getUnseen('R') +
+                        getUnseen('S') + getUnseen('T') +
+                        getUnseen('A') + getUnseen('I');
         
         return goodTiles >= 10;
     }

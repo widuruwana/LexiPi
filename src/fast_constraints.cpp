@@ -6,13 +6,29 @@
 
 using namespace std;
 
-// Helper to conver char to bit index (0-25)
+// Helper to convert char to bit index (0-25)
 static inline int toIdx(char c) {
     return toupper(c) - 'A';
 }
 
+// Helper to build the complete cross-word and validate it
+static bool isValidCrossWord(const string &upperPart, char letter, const string &lowerPart) {
+    string crossWord;
+    crossWord.reserve(upperPart.length() + 1 + lowerPart.length());
+    crossWord += upperPart;
+    crossWord += toupper(letter);
+    crossWord += lowerPart;
+    
+    // Cross-word must be at least 2 letters
+    if (crossWord.length() < 2) {
+        return false;
+    }
+    
+    return isValidWord(crossWord);
+}
+
 CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int row, int col) {
-    // If there are no verticle neighbors, ANY letter is valid vertically.
+    // If there are no vertical neighbors, ANY letter is valid vertically.
     bool hasUp = (row > 0 && letters[row-1][col] != ' ');
     bool hasDown = (row < 14 && letters[row+1][col] != ' ');
 
@@ -23,6 +39,9 @@ CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int 
     // GADDAG Optimization:
     // Instead of constructing the string and querying the dictionary 26 times,
     // we traverse the GADDAG graph to find valid letters.
+    //
+    // CRITICAL FIX: We now validate the COMPLETE cross-word (upperPart + letter + lowerPart)
+    // against the dictionary, not just whether the letter could lead to a valid word.
 
     // 1. Identify Upper and Lower parts
     string upperPart;
@@ -67,29 +86,14 @@ CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int 
         if (gDawg.nodes[node].children[delimIdx] == -1) return MASK_NONE;
         node = gDawg.nodes[node].children[delimIdx];
 
-        // 4. Check Candidates
+        // 4. Check Candidates - VALIDATE COMPLETE CROSS-WORD
         for (int c = 0; c < 26; c++) {
             int childNode = gDawg.nodes[node].children[c];
             if (childNode != -1) {
-                // Check if this candidate leads to a valid completion with LowerPart
-                if (lowerPart.empty()) {
-                    if (gDawg.nodes[childNode].isEndOfWord) {
-                        allowed |= (1 << c);
-                    }
-                } else {
-                    int curr = childNode;
-                    bool match = true;
-                    for (char l : lowerPart) {
-                        int lIdx = toIdx(l);
-                        if (gDawg.nodes[curr].children[lIdx] == -1) {
-                            match = false;
-                            break;
-                        }
-                        curr = gDawg.nodes[curr].children[lIdx];
-                    }
-                    if (match && gDawg.nodes[curr].isEndOfWord) {
-                        allowed |= (1 << c);
-                    }
+                char letter = 'A' + c;
+                // FIX: Validate the complete cross-word is in the dictionary
+                if (isValidCrossWord(upperPart, letter, lowerPart)) {
+                    allowed |= (1 << c);
                 }
             }
         }
@@ -108,7 +112,7 @@ CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int 
         if (gDawg.nodes[node].children[anchorIdx] == -1) return MASK_NONE;
         node = gDawg.nodes[node].children[anchorIdx];
 
-        // 2. Check Candidates (which are "Left" of anchor in GADDAG sense)
+        // 2. Check Candidates - VALIDATE COMPLETE CROSS-WORD
         for (int c = 0; c < 26; c++) {
             int childNode = gDawg.nodes[node].children[c];
             if (childNode != -1) {
@@ -117,23 +121,25 @@ CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int 
                 int delimNode = gDawg.nodes[childNode].children[delimIdx];
 
                 if (delimNode != -1) {
-                    // 4. Traverse Rest of Lower
-                    if (lowerSuffix.empty()) {
-                        if (gDawg.nodes[delimNode].isEndOfWord) {
-                            allowed |= (1 << c);
+                    // Need to verify the path leads to a valid word ending
+                    // For cross-word validation, check if candidate + lowerPart forms valid word
+                    char letter = 'A' + c;
+                    string fullLower = letter + lowerPart;
+                    
+                    // Check if fullLower (with uppercase conversion) is a valid continuation
+                    int curr = childNode;
+                    bool match = true;
+                    for (char l : lowerSuffix) {
+                        int lIdx = toIdx(l);
+                        if (gDawg.nodes[curr].children[lIdx] == -1) {
+                            match = false;
+                            break;
                         }
-                    } else {
-                        int curr = delimNode;
-                        bool match = true;
-                        for (char l : lowerSuffix) {
-                            int lIdx = toIdx(l);
-                            if (gDawg.nodes[curr].children[lIdx] == -1) {
-                                match = false;
-                                break;
-                            }
-                            curr = gDawg.nodes[curr].children[lIdx];
-                        }
-                        if (match && gDawg.nodes[curr].isEndOfWord) {
+                        curr = gDawg.nodes[curr].children[lIdx];
+                    }
+                    if (match && gDawg.nodes[curr].isEndOfWord) {
+                        // FIX: Now validate the complete cross-word is in the dictionary
+                        if (isValidCrossWord(upperPart, letter, lowerPart)) {
                             allowed |= (1 << c);
                         }
                     }

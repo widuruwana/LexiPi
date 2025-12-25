@@ -4,7 +4,7 @@
 #include "rack.h"
 #include <string>
 #include <map>
-#include <vector>
+#include <array>
 
 class EvaluationModel {
 public:
@@ -31,6 +31,37 @@ public:
 
 private:
     std::map<std::string, float> weights;
+    
+    // Bingo probability lookup table (pre-computed from Scrabble tile distributions)
+    // Probability that a letter appears in a random 7-tile bingo combination
+    static constexpr std::array<float, 26> BINGO_PROBABILITIES = {{
+        0.85f,  // A - very high (most common vowel in bingos)
+        0.25f,  // B
+        0.45f,  // C
+        0.55f,  // D
+        0.90f,  // E - highest bingo probability
+        0.20f,  // F
+        0.35f,  // G
+        0.35f,  // H
+        0.80f,  // I - very high bingo probability
+        0.05f,  // J
+        0.20f,  // K
+        0.55f,  // L
+        0.35f,  // M
+        0.70f,  // N - high (common in endings)
+        0.50f,  // O
+        0.25f,  // P
+        0.10f,  // Q
+        0.85f,  // R - very high (most common consonant in bingos)
+        0.95f,  // S - highest bingo probability!
+        0.85f,  // T - very high
+        0.40f,  // U
+        0.15f,  // V
+        0.20f,  // W
+        0.10f,  // X
+        0.35f,  // Y
+        0.10f   // Z
+    }};
 
     // Helper to check if a specific letter is accessible on the board
     // Accessible means it exists and has at least one empty neighbor
@@ -40,4 +71,6 @@ private:
     float getLeaveValue(const TileRack& rack) const;
     float getBalancePenalty(const TileRack& rack) const;
     float getSynergyBonus(const TileRack& rack, const LetterBoard& board) const;
+    float getBingoProbability(const TileRack& rack) const;
+    float getBoardControlBonus(const LetterBoard& board) const;
 };

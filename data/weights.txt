@@ -1,19 +1,22 @@
 # Linear Regression Weights for Scrabble AI Evaluation
 # Format: KEY=VALUE
+# Tuned for competitive play with GADDAG and 2-ply lookahead
 
 # Feature Weights (Multipliers)
 SCORE_WEIGHT=1.0
 LEAVE_WEIGHT=4.0
 BALANCE_WEIGHT=2.0
 SYNERGY_WEIGHT=2.0
+BINGO_WEIGHT=5.0       # Weight for bingo probability feature
+CONTROL_WEIGHT=3.0     # Weight for board control feature
 
 # Rack Leave Values (Strategic value of keeping a tile)
-# Tuned for Bingo Probability (RETAIN)
+# Tuned for Bingo Probability (ENHANCED)
 LEAVE_A=3.0
 LEAVE_B=-2.0
 LEAVE_C=-1.0
 LEAVE_D=1.0
-LEAVE_E=5.0
+LEAVE_E=7.0            # Increased - essential vowel for bingos
 LEAVE_F=-2.0
 LEAVE_G=-1.5
 LEAVE_H=1.0
@@ -26,16 +29,16 @@ LEAVE_N=2.0
 LEAVE_O=-1.0
 LEAVE_P=-1.5
 LEAVE_Q=-8.0
-LEAVE_R=6.0
-LEAVE_S=10.0
-LEAVE_T=3.0
+LEAVE_R=10.0           # Increased - critical for bingos
+LEAVE_S=15.0           # Increased - highest bingo enabler
+LEAVE_T=5.0            # Increased - high bingo probability
 LEAVE_U=-1.5
 LEAVE_V=-3.5
 LEAVE_W=-2.5
 LEAVE_X=-3.0
 LEAVE_Y=-2.0
 LEAVE_Z=-2.0
-LEAVE_BLANK=40.0
+LEAVE_BLANK=50.0       # Increased - blanks are extremely valuable
 
 # Penalties (Negative values)
 PENALTY_NO_VOWELS=-10.0
@@ -47,3 +50,46 @@ PENALTY_Q_NO_U=-10.0
 # Synergies (Bonuses)
 BONUS_ING=5.0
 BONUS_Q_WITH_U_ON_BOARD=6.0
+
+# Board Control Bonuses (Denying premium squares)
+BONUS_TWS_DENIED=15.0
+BONUS_DWS_DENIED=8.0
+BONUS_CENTER_CONTROL=5.0
+
+# 2-Ply Evaluation Weights
+OPPONENT_RESPONSE_PENALTY=0.8    # Weight for opponent's best response
+FUTURE_COUNTER_PENALTY=0.9      # Weight for future counter-move potential
+
+# Move Generation Limits
+TOP_K_CANDIDATES=40              # Reduced from 60 for faster evaluation
+OPP_MOVES_TO_EVALUATE=30         # Maximum opponent moves to evaluate
+
+# Bingo Probability Lookup Table (pre-computed values)
+# These are used internally by the evaluation model
+BINGO_A=0.85
+BINGO_B=0.25
+BINGO_C=0.45
+BINGO_D=0.55
+BINGO_E=0.90
+BINGO_F=0.20
+BINGO_G=0.35
+BINGO_H=0.35
+BINGO_I=0.80
+BINGO_J=0.05
+BINGO_K=0.20
+BINGO_L=0.55
+BINGO_M=0.35
+BINGO_N=0.70
+BINGO_O=0.50
+BINGO_P=0.25
+BINGO_Q=0.10
+BINGO_R=0.85
+BINGO_S=0.95
+BINGO_T=0.85
+BINGO_U=0.40
+BINGO_V=0.15
+BINGO_W=0.20
+BINGO_X=0.10
+BINGO_Y=0.35
+BINGO_Z=0.10
+BINGO_BLANK=0.30              # Each blank adds ~30% bingo chance

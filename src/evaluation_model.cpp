@@ -13,6 +13,8 @@ EvaluationModel::EvaluationModel() {
     weights["LEAVE_WEIGHT"] = 4.0f;
     weights["BALANCE_WEIGHT"] = 2.0f;
     weights["SYNERGY_WEIGHT"] = 2.0f;
+    weights["BINGO_WEIGHT"] = 5.0f;      // Weight for bingo probability
+    weights["CONTROL_WEIGHT"] = 3.0f;    // Weight for board control
 
     // Default Leave Values (Approximation of static heuristics)
     weights["LEAVE_A"] = 3.0f; weights["LEAVE_B"] = -2.0f; weights["LEAVE_C"] = -1.0f; weights["LEAVE_D"] = 1.0f; weights["LEAVE_E"] = 5.0f;
@@ -33,6 +35,11 @@ EvaluationModel::EvaluationModel() {
     // Synergies
     weights["BONUS_ING"] = 5.0f;
     weights["BONUS_Q_WITH_U_ON_BOARD"] = 6.0f; // Mitigates the Q penalty if U is accessible
+    
+    // Board control bonuses (denying premium squares)
+    weights["BONUS_TWS_DENIED"] = 15.0f;
+    weights["BONUS_DWS_DENIED"] = 8.0f;
+    weights["BONUS_CENTER_CONTROL"] = 5.0f;
 }
 
 bool EvaluationModel::loadWeights(const string& filepath) {
@@ -180,13 +187,115 @@ float EvaluationModel::getSynergyBonus(const TileRack& rack, const LetterBoard& 
     return bonus;
 }
 
+float EvaluationModel::getBingoProbability(const TileRack& rack) const {
+    // Calculate the probability of being able to form a bingo with remaining tiles
+    // Uses pre-computed bingo probabilities for each letter
+    
+    int tileCounts[26] = {0};
+    int blankCount = 0;
+    
+    for (const Tile& t : rack) {
+        if (t.letter == '?') {
+            blankCount++;
+        } else {
+            int idx = toupper(t.letter) - 'A';
+            if (idx >= 0 && idx < 26) tileCounts[idx]++;
+        }
+    }
+    
+    // Simplified bingo probability: sum of individual probabilities
+    // A more sophisticated version would consider combinations
+    float probability = 0.0f;
+    
+    for (int i = 0; i < 26; i++) {
+        if (tileCounts[i] > 0) {
+            // Each tile of a letter contributes its probability
+            probability += BINGO_PROBABILITIES[i] * tileCounts[i];
+        }
+    }
+    
+    // Blanks greatly increase bingo probability
+    probability += blankCount * 0.3f;  // Each blank adds ~30% bingo chance
+    
+    // Bonus for having many tiles (closer to 7 = higher bingo chance)
+    int tilesInRack = rack.size();
+    if (tilesInRack >= 6) {
+        probability += (tilesInRack - 5) * 0.1f;  // Extra bonus for 6-7 tiles
+    }
+    
+    // Cap probability at 1.0
+    return min(probability, 1.0f);
+}
+
+float EvaluationModel::getBoardControlBonus(const LetterBoard& board) const {
+    float bonus = 0.0f;
+    
+    // Center control (7,7 is the star - most valuable)
+    // Count tiles in center 3x3 area (rows 6-8, cols 6-8)
+    int centerTiles = 0;
+    for (int r = 6; r <= 8; r++) {
+        for (int c = 6; c <= 8; c++) {
+            if (board[r][c] != ' ') {
+                centerTiles++;
+            }
+        }
+    }
+    if (centerTiles > 0) {
+        bonus += centerTiles * weights.at("BONUS_CENTER_CONTROL");
+    }
+    
+    // Extended center (rows 5-9, cols 5-9)
+    int extendedCenter = 0;
+    for (int r = 5; r <= 9; r++) {
+        for (int c = 5; c <= 9; c++) {
+            if (board[r][c] != ' ') {
+                extendedCenter++;
+            }
+        }
+    }
+    if (extendedCenter > centerTiles) {
+        bonus += (extendedCenter - centerTiles) * (weights.at("BONUS_CENTER_CONTROL") * 0.5f);
+    }
+    
+    // Premium square denial bonus
+    // Count how many TWS/DWS/TLS/DLS squares are occupied
+    int premiumSquares = 0;
+    // TWS locations
+    int twsSquares[8][2] = {{0,0},{0,7},{0,14},{7,0},{7,14},{14,0},{14,7},{14,14}};
+    for (auto& sq : twsSquares) {
+        if (board[sq[0]][sq[1]] != ' ') premiumSquares++;
+    }
+    // DWS locations (more of them)
+    int dwsCount = 0;
+    // Simplified DWS check - just count occupied premium squares (would need bonusBoard for accurate check)
+    
+    bonus += premiumSquares * weights.at("BONUS_TWS_DENIED") * 0.5f;
+    
+    // Edge control bonus - having tiles near edges can be strategic
+    int edgeTiles = 0;
+    for (int r = 0; r < 15; r++) {
+        for (int c = 0; c < 15; c++) {
+            if (board[r][c] != ' ') {
+                // Check if on edge or near edge
+                if (r == 0 || r == 14 || c == 0 || c == 14) edgeTiles++;
+            }
+        }
+    }
+    // Small bonus for edge presence (can be used for hooks later)
+    bonus += edgeTiles * 0.5f;
+    
+    return bonus;
+}
+
 float EvaluationModel::evaluate(int scoreGained, const TileRack& currentRack, const LetterBoard& board) {
     float scoreTerm = (float)scoreGained * weights.at("SCORE_WEIGHT");
     float leaveTerm = getLeaveValue(currentRack) * weights.at("LEAVE_WEIGHT");
     float balanceTerm = getBalancePenalty(currentRack) * weights.at("BALANCE_WEIGHT");
     float synergyTerm = getSynergyBonus(currentRack, board) * weights.at("SYNERGY_WEIGHT");
+    float bingoTerm = getBingoProbability(currentRack) * weights.at("BINGO_WEIGHT");
+    float controlTerm = getBoardControlBonus(board) * weights.at("CONTROL_WEIGHT");
     
-    return scoreTerm + leaveTerm + balanceTerm + synergyTerm;
+    return scoreTerm + leaveTerm + balanceTerm + synergyTerm + bingoTerm + controlTerm;
 }
 
 std::map<std::string, float> EvaluationModel::getFeatures(int scoreGained, const TileRack& currentRack, const LetterBoard& board) {
@@ -260,6 +369,12 @@ std::map<std::string, float> EvaluationModel::getFeatures(int scoreGained, const
         else features["PENALTY_Q_NO_U"] += weights.at("SYNERGY_WEIGHT");
     }
     if (hasI && hasN && hasG) features["BONUS_ING"] += weights.at("SYNERGY_WEIGHT");
+    
+    // 5. Bingo Features
+    features["BINGO_WEIGHT"] = getBingoProbability(currentRack);
+    
+    // 6. Board Control Features
+    features["CONTROL_WEIGHT"] = getBoardControlBonus(board);
     
     return features;
 }

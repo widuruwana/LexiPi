@@ -883,8 +883,8 @@ void AIPlayer::setEvaluationModel(EvaluationModel* model) {
     this->externalModel = model;
 }
 
-void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
-    // GADDAG Implementation
+vector<MoveCandidate> AIPlayer::findMovesHorizontal(const LetterBoard &letters, const TileRack &rack) {
+    vector<MoveCandidate> results;
     
     // Prepare rack counts
     int rackCounts[27] = {0};
@@ -892,10 +892,9 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
         if (t.letter == '?') rackCounts[26]++;
         else rackCounts[toupper(t.letter) - 'A']++;
     }
-
-    // 1. Horizontal Moves
+    
+    // Generate horizontal moves
     for (int r = 0; r < 15; r++) {
-        // Pre-calculate constraints for this row
         RowConstraint constraints = ConstraintGenerator::generateRowConstraint(letters, r);
         
         for (int c = 0; c < 15; c++) {
@@ -904,7 +903,6 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
                 if (r == 7 && c == 7 && getActiveBoardArea(letters).isEmpty) {
                     isAnchor = true;
                 } else {
-                    // Check neighbors
                     if (r > 0 && letters[r-1][c] != ' ') isAnchor = true;
                     else if (r < 14 && letters[r+1][c] != ' ') isAnchor = true;
                     else if (c > 0 && letters[r][c-1] != ' ') isAnchor = true;
@@ -913,12 +911,67 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
             }
             
             if (isAnchor) {
-                genMovesGaddag(r, c, letters, rackCounts, true, constraints);
+                // Temporary helper lambda to generate moves for this anchor
+                auto genFromAnchor = [&](int anchorRow, int anchorCol, const LetterBoard &board, int counts[27], bool horizontal) {
+                    int rackCountsCopy[27];
+                    memcpy(rackCountsCopy, counts, sizeof(rackCountsCopy));
+                    
+                    uint32_t triedMask = 0;
+                    for (int i = 0; i < 27; i++) {
+                        if (rackCountsCopy[i] > 0) {
+                            bool isBlank = (i == 26);
+                            int startChar = isBlank ? 0 : i;
+                            int endChar = isBlank ? 25 : i;
+                            
+                            for (int c = startChar; c <= endChar; c++) {
+                                if (!isBlank && ((triedMask >> c) & 1)) continue;
+                                if (!isBlank) triedMask |= (1 << c);
+                                
+                                char letter = (char)('A' + c);
+                                
+                                if (!constraints.isAllowed(anchorCol, letter)) continue;
+                                
+                                int childIdx = gDawg.nodes[gDawg.rootIndex].children[c];
+                                if (childIdx != -1) {
+                                    rackCountsCopy[i]--;
+                                    
+                                    string word = "";
+                                    word += (isBlank ? (char)tolower(letter) : letter);
+                                    
+                                    // Go Left
+                                    goLeftParallel(childIdx, anchorRow, anchorCol - 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                    
+                                    int delimIdx = gDawg.nodes[childIdx].children[26];
+                                    if (delimIdx != -1) {
+                                        goRightParallel(delimIdx, anchorRow, anchorCol + 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                    }
+                                    
+                                    rackCountsCopy[i]++;
+                                }
+                            }
+                        }
+                    }
+                };
+                
+                genFromAnchor(r, c, letters, rackCounts, true);
             }
         }
     }
     
-    // 2. Vertical Moves (Transpose logic)
+    return results;
+}
+
+vector<MoveCandidate> AIPlayer::findMovesVertical(const LetterBoard &letters, const TileRack &rack) {
+    vector<MoveCandidate> results;
+    
+    // Prepare rack counts
+    int rackCounts[27] = {0};
+    for (const Tile &t: rack) {
+        if (t.letter == '?') rackCounts[26]++;
+        else rackCounts[toupper(t.letter) - 'A']++;
+    }
+    
+    // Transpose board for vertical moves
     LetterBoard transposed;
     for (int r = 0; r < 15; r++) {
         for (int c = 0; c < 15; c++) {
@@ -926,8 +979,8 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
         }
     }
     
+    // Generate vertical moves (processed as horizontal on transposed board)
     for (int r = 0; r < 15; r++) {
-        // Pre-calculate constraints for this row (which is a column in original board)
         RowConstraint constraints = ConstraintGenerator::generateRowConstraint(transposed, r);
         
         for (int c = 0; c < 15; c++) {
@@ -944,10 +997,208 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
             }
             
             if (isAnchor) {
-                genMovesGaddag(r, c, transposed, rackCounts, false, constraints);
+                // Temporary helper lambda
+                auto genFromAnchor = [&](int anchorRow, int anchorCol, const LetterBoard &board, int counts[27], bool horizontal) {
+                    int rackCountsCopy[27];
+                    memcpy(rackCountsCopy, counts, sizeof(rackCountsCopy));
+                    
+                    uint32_t triedMask = 0;
+                    for (int i = 0; i < 27; i++) {
+                        if (rackCountsCopy[i] > 0) {
+                            bool isBlank = (i == 26);
+                            int startChar = isBlank ? 0 : i;
+                            int endChar = isBlank ? 25 : i;
+                            
+                            for (int c = startChar; c <= endChar; c++) {
+                                if (!isBlank && ((triedMask >> c) & 1)) continue;
+                                if (!isBlank) triedMask |= (1 << c);
+                                
+                                char letter = (char)('A' + c);
+                                
+                                if (!constraints.isAllowed(anchorCol, letter)) continue;
+                                
+                                int childIdx = gDawg.nodes[gDawg.rootIndex].children[c];
+                                if (childIdx != -1) {
+                                    rackCountsCopy[i]--;
+                                    
+                                    string word = "";
+                                    word += (isBlank ? (char)tolower(letter) : letter);
+                                    
+                                    // Go Left
+                                    goLeftParallel(childIdx, anchorRow, anchorCol - 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                    
+                                    int delimIdx = gDawg.nodes[childIdx].children[26];
+                                    if (delimIdx != -1) {
+                                        goRightParallel(delimIdx, anchorRow, anchorCol + 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                    }
+                                    
+                                    rackCountsCopy[i]++;
+                                }
+                            }
+                        }
+                    }
+                };
+                
+                genFromAnchor(r, c, transposed, rackCounts, false);
             }
         }
     }
+    
+    return results;
+}
+
+void AIPlayer::goLeftParallel(int nodeIdx, int currRow, int currCol,
+                              const LetterBoard &letters, int rackCounts[27],
+                              string currentWord, int anchorCol, bool isHorizontal, 
+                              const RowConstraint& constraints, vector<MoveCandidate> &results) {
+    
+    if (currCol < 0) {
+        int delimIdx = gDawg.nodes[nodeIdx].children[26];
+        if (delimIdx != -1) {
+            goRightParallel(delimIdx, currRow, anchorCol + 1, letters, rackCounts, currentWord, anchorCol, isHorizontal, constraints, results);
+        }
+        return;
+    }
+    
+    if (letters[currRow][currCol] != ' ') {
+        char existing = letters[currRow][currCol];
+        int letterIdx = toupper(existing) - 'A';
+        
+        int childIdx = gDawg.nodes[nodeIdx].children[letterIdx];
+        if (childIdx != -1) {
+            string newWord = existing + currentWord;
+            goLeftParallel(childIdx, currRow, currCol - 1, letters, rackCounts, newWord, anchorCol, isHorizontal, constraints, results);
+            
+            int delimIdx = gDawg.nodes[childIdx].children[26];
+            if (delimIdx != -1) {
+                goRightParallel(delimIdx, currRow, anchorCol + 1, letters, rackCounts, newWord, anchorCol, isHorizontal, constraints, results);
+            }
+        }
+        return;
+    }
+    
+    int delimIdx = gDawg.nodes[nodeIdx].children[26];
+    if (delimIdx != -1) {
+        goRightParallel(delimIdx, currRow, anchorCol + 1, letters, rackCounts, currentWord, anchorCol, isHorizontal, constraints, results);
+    }
+    
+    bool hasTiles = false;
+    for(int i=0; i<27; ++i) if(rackCounts[i] > 0) { hasTiles = true; break; }
+    if (!hasTiles) return;
+    
+    uint32_t triedMask = 0;
+    for (int i = 0; i < 27; i++) {
+        if (rackCounts[i] > 0) {
+            bool isBlank = (i == 26);
+            int startChar = isBlank ? 0 : i;
+            int endChar = isBlank ? 25 : i;
+            
+            for (int c = startChar; c <= endChar; c++) {
+                if (!isBlank && ((triedMask >> c) & 1)) continue;
+                if (!isBlank) triedMask |= (1 << c);
+                
+                char letter = (char)('A' + c);
+                
+                if (!constraints.isAllowed(currCol, letter)) continue;
+                
+                int childIdx = gDawg.nodes[nodeIdx].children[c];
+                if (childIdx != -1) {
+                    rackCounts[i]--;
+                    
+                    string newWord = (isBlank ? (char)tolower(letter) : letter) + currentWord;
+                    
+                    goLeftParallel(childIdx, currRow, currCol - 1, letters, rackCounts, newWord, anchorCol, isHorizontal, constraints, results);
+                    
+                    rackCounts[i]++;
+                }
+            }
+        }
+    }
+}
+
+void AIPlayer::goRightParallel(int nodeIdx, int currRow, int currCol,
+                               const LetterBoard &letters, int rackCounts[27],
+                               string currentWord, int startCol, bool isHorizontal, 
+                               const RowConstraint& constraints, vector<MoveCandidate> &results) {
+    
+    if (gDawg.nodes[nodeIdx].isEndOfWord) {
+        if (currCol >= 15 || letters[currRow][currCol] == ' ') {
+            int finalStartCol = currCol - currentWord.length();
+            int finalRow = isHorizontal ? currRow : finalStartCol;
+            int finalCol = isHorizontal ? finalStartCol : currRow;
+            
+            if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
+                results.push_back({finalRow, finalCol, currentWord, 0, isHorizontal});
+            }
+        }
+    }
+    
+    if (currCol >= 15) return;
+    
+    if (letters[currRow][currCol] != ' ') {
+        char existing = letters[currRow][currCol];
+        int letterIdx = toupper(existing) - 'A';
+        
+        int childIdx = gDawg.nodes[nodeIdx].children[letterIdx];
+        if (childIdx != -1) {
+            goRightParallel(childIdx, currRow, currCol + 1, letters, rackCounts, currentWord + existing, startCol, isHorizontal, constraints, results);
+        }
+        return;
+    }
+    
+    bool hasTiles = false;
+    for(int i=0; i<27; ++i) if(rackCounts[i] > 0) { hasTiles = true; break; }
+    if (!hasTiles) return;
+    
+    uint32_t triedMask = 0;
+    for (int i = 0; i < 27; i++) {
+        if (rackCounts[i] > 0) {
+            bool isBlank = (i == 26);
+            int startChar = isBlank ? 0 : i;
+            int endChar = isBlank ? 25 : i;
+            
+            for (int c = startChar; c <= endChar; c++) {
+                if (!isBlank && ((triedMask >> c) & 1)) continue;
+                if (!isBlank) triedMask |= (1 << c);
+                
+                char letter = (char)('A' + c);
+                
+                if (!constraints.isAllowed(currCol, letter)) continue;
+                
+                int childIdx = gDawg.nodes[nodeIdx].children[c];
+                if (childIdx != -1) {
+                    rackCounts[i]--;
+                    
+                    string newWord = currentWord + (isBlank ? (char)tolower(letter) : letter);
+                    
+                    goRightParallel(childIdx, currRow, currCol + 1, letters, rackCounts, newWord, startCol, isHorizontal, constraints, results);
+                    
+                    rackCounts[i]++;
+                }
+            }
+        }
+    }
+}
+
+void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
+    // PARALLELIZED: Generate horizontal and vertical moves concurrently
+    auto hFuture = async(launch::async, [this, &letters, &rack]() {
+        return findMovesHorizontal(letters, rack);
+    });
+    
+    auto vFuture = async(launch::async, [this, &letters, &rack]() {
+        return findMovesVertical(letters, rack);
+    });
+    
+    // Collect results from both threads
+    vector<MoveCandidate> horizontalMoves = hFuture.get();
+    vector<MoveCandidate> verticalMoves = vFuture.get();
+    
+    // Combine results
+    candidates.clear();
+    candidates.reserve(horizontalMoves.size() + verticalMoves.size());
+    candidates.insert(candidates.end(), horizontalMoves.begin(), horizontalMoves.end());
+    candidates.insert(candidates.end(), verticalMoves.begin(), verticalMoves.end());
 }
 
 void AIPlayer::genMovesGaddag(int anchorRow, int anchorCol, const LetterBoard &letters, int rackCounts[27], bool isHorizontal, const RowConstraint& constraints) {

@@ -42,8 +42,8 @@ public:
 private:
     vector <MoveCandidate> candidates;
     
-    // 2-ply evaluation parameters - TUNED AGGRESSION
-    static constexpr int TOP_K_CANDIDATES = 60;  // Evaluate even more options
+    // 2-ply evaluation parameters - OPTIMIZED FOR SPEED
+    static constexpr int TOP_K_CANDIDATES = 40;  // Reduced from 60 for faster evaluation
     static constexpr float LEAVE_WEIGHT = 4.0f;  // Heavily prioritize rack leave for bingos
 
     // Recursion state helpers
@@ -72,6 +72,18 @@ private:
 
     // The solver functions
     void findAllMoves(const LetterBoard &letters, const TileRack &rack);
+
+    // Parallelized move generation helpers
+    vector<MoveCandidate> findMovesHorizontal(const LetterBoard &letters, const TileRack &rack);
+    vector<MoveCandidate> findMovesVertical(const LetterBoard &letters, const TileRack &rack);
+    void goLeftParallel(int nodeIdx, int currRow, int currCol,
+                        const LetterBoard &letters, int rackCounts[27],
+                        string currentWord, int anchorCol, bool isHorizontal, const RowConstraint& constraints,
+                        vector<MoveCandidate> &results);
+    void goRightParallel(int nodeIdx, int currRow, int currCol,
+                         const LetterBoard &letters, int rackCounts[27],
+                         string currentWord, int startCol, bool isHorizontal, const RowConstraint& constraints,
+                         vector<MoveCandidate> &results);
 
     // GADDAG Move Generation
     void genMovesGaddag(int anchorRow, int anchorCol, const LetterBoard &letters, int rackCounts[27], bool isHorizontal, const RowConstraint& constraints);

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <vector>
 
 #include "../include/board.h"
 #include "../include/move.h"
