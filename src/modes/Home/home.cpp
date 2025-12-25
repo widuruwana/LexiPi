@@ -30,6 +30,8 @@ void waitForQuitKey() {
         char ch;
         if (!(cin >> ch)) {
             cin.clear();
+            // If EOF (e.g. from pipe), break to avoid infinite loop
+            if (cin.eof()) break;
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
             continue;
         }

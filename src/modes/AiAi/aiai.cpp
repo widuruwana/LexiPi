@@ -173,6 +173,12 @@ void runAiAi() {
                         cout << "Scores: Cutie_Pi = " << players[0].score << " | Evil_Pi = " << players[1].score << endl;
                     }
 
+                    // Notify the OTHER player (who is about to become current)
+                    AIPlayer* aiOpponent = dynamic_cast<AIPlayer*>(controllers[1 - currentPlayer]);
+                    if (aiOpponent) {
+                        aiOpponent->observeOpponentMove(move);
+                    }
+
                     currentPlayer = 1 - currentPlayer;
 
                 } else {

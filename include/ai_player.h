@@ -39,6 +39,9 @@ public:
     // Allow injecting a shared evaluation model (for training)
     void setEvaluationModel(EvaluationModel* model);
 
+    // Observe opponent's move to update tile tracker
+    void observeOpponentMove(const Move& move);
+
 private:
     vector <MoveCandidate> candidates;
     

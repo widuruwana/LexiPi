@@ -652,6 +652,10 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     // 2. Pick the best one
     if (candidates.empty()) {
         cout << "[AI] No moves found. Passing." << endl;
+        if (isCritical) {
+             cout << "[AI] Debug: Board might be blocked or generator failed." << endl;
+             // Optional: Print board state here if needed
+        }
         Move passMove;
         passMove.type = MoveType::PASS;
         return passMove;
@@ -932,6 +936,34 @@ float AIPlayer::evaluateWithTileTracking(float baseEval, const TileRack &oppRack
 
 void AIPlayer::setEvaluationModel(EvaluationModel* model) {
     this->externalModel = model;
+}
+
+void AIPlayer::observeOpponentMove(const Move& move) {
+    if (move.type == MoveType::PLAY) {
+        // The move object contains the full word, but we only want to track the tiles played.
+        // However, the Move object passed from the game engine usually contains the full word
+        // and the start position.
+        // Wait, the Move object in AiAi.cpp comes from getMove.
+        // In getMove, we return a Move with the TILES PLACED as the word (from calculateEngineMove).
+        // Let's verify this in AiAi.cpp.
+        
+        // In AiAi.cpp:
+        // Move move = controllers[currentPlayer]->getMove(...);
+        // ...
+        // if (move.type == MoveType::PLAY) {
+        //     bool success = executePlayMove(...);
+        //     if (success) {
+        //         lastMove.exists = true;
+        //         // ...
+        //         currentPlayer = 1 - currentPlayer;
+        //     }
+        // }
+        
+        // The 'move' object returned by getMove has 'word' set to engineMove.word (only placed tiles).
+        // So we can directly pass this to tileTracker.markPlayed.
+        
+        tileTracker.markPlayed(move.word);
+    }
 }
 
 vector<MoveCandidate> AIPlayer::findMovesHorizontal(const LetterBoard &letters, const TileRack &rack) {

@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <cstdint>
+#include <iostream>
 
 using namespace std;
 
@@ -64,6 +65,9 @@ public:
         vector<MoveCandidate> moves = generateMoves(initialState);
         
         if (moves.empty()) {
+            cout << "[DEBUG] EndgameSolver: No moves found for rack: ";
+            for(const auto& t : myRack) cout << t.letter;
+            cout << endl;
             return Move::Pass();
         }
 

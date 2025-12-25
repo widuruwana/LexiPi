@@ -100,6 +100,10 @@ void TrainingMode::playEpisode() {
             
             if (result.success) {
                 currentPlayer.score += result.score;
+
+                // Notify Opponent AI
+                AIPlayer& opponentAI = (turnCount % 2 == 0) ? ai2 : ai1;
+                opponentAI.observeOpponentMove(move);
                 
                 // RECORD TRAINING DATA
                 // We need the features for the state *after* the move (S')
