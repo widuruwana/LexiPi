@@ -57,6 +57,30 @@ static bool validateMoveCrossWords(const LetterBoard &letters, const MoveCandida
     return true;
 }
 
+// Helper to check if a move places at least one non-blank tile
+// Returns true if the move would place at least one non-blank tile
+static bool hasNonBlankTile(const LetterBoard &letters, const MoveCandidate &candidate) {
+    int r = candidate.row;
+    int c = candidate.col;
+    int dr = candidate.isHorizontal ? 0 : 1;
+    int dc = candidate.isHorizontal ? 1 : 0;
+    
+    // Check each letter in the word
+    for (size_t i = 0; i < candidate.word.length(); i++) {
+        char letter = candidate.word[i];
+        int currR = r + (dr * i);
+        int currC = c + (dc * i);
+        
+        // If this square is empty and the letter is not a blank (lowercase), we have a non-blank tile
+        if (letters[currR][currC] == ' ' && !islower(letter)) {
+            return true;
+        }
+    }
+    
+    // No non-blank tiles would be placed
+    return false;
+}
+
 // Optimization: Prune the search space to boundingBox + 1
 struct SearchRange {
     int minRow, maxRow, minCol, maxCol;
@@ -970,7 +994,11 @@ vector<MoveCandidate> AIPlayer::findMovesHorizontal(const LetterBoard &letters, 
                                     
                                     int delimIdx = gDawg.nodes[childIdx].children[26];
                                     if (delimIdx != -1) {
-                                        goRightParallel(delimIdx, anchorRow, anchorCol + 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                        // CRITICAL FIX: Only start a word here if the square to the left is empty
+                                        // Otherwise, we are merging with an existing word prefix that we failed to match in goLeft
+                                        if (anchorCol == 0 || board[anchorRow][anchorCol - 1] == ' ') {
+                                            goRightParallel(delimIdx, anchorRow, anchorCol + 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                        }
                                     }
                                     
                                     rackCountsCopy[i]++;
@@ -1056,7 +1084,10 @@ vector<MoveCandidate> AIPlayer::findMovesVertical(const LetterBoard &letters, co
                                     
                                     int delimIdx = gDawg.nodes[childIdx].children[26];
                                     if (delimIdx != -1) {
-                                        goRightParallel(delimIdx, anchorRow, anchorCol + 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                        // CRITICAL FIX: Only start a word here if the square to the left is empty
+                                        if (anchorCol == 0 || board[anchorRow][anchorCol - 1] == ' ') {
+                                            goRightParallel(delimIdx, anchorRow, anchorCol + 1, board, rackCountsCopy, word, anchorCol, horizontal, constraints, results);
+                                        }
                                     }
                                     
                                     rackCountsCopy[i]++;
@@ -1098,7 +1129,10 @@ void AIPlayer::goLeftParallel(int nodeIdx, int currRow, int currCol,
             
             int delimIdx = gDawg.nodes[childIdx].children[26];
             if (delimIdx != -1) {
-                goRightParallel(delimIdx, currRow, anchorCol + 1, letters, rackCounts, newWord, anchorCol, isHorizontal, constraints, results);
+                // CRITICAL FIX: Only start a word here if the square to the left is empty
+                if (currCol - 1 < 0 || letters[currRow][currCol - 1] == ' ') {
+                    goRightParallel(delimIdx, currRow, anchorCol + 1, letters, rackCounts, newWord, anchorCol, isHorizontal, constraints, results);
+                }
             }
         }
         return;
@@ -1155,10 +1189,18 @@ void AIPlayer::goRightParallel(int nodeIdx, int currRow, int currCol,
             int finalCol = isHorizontal ? finalStartCol : currRow;
             
             if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
-                // Validate cross-words before adding candidate
-                MoveCandidate candidate = {finalRow, finalCol, currentWord, 0, isHorizontal};
-                if (validateMoveCrossWords(letters, candidate)) {
-                    results.push_back(candidate);
+                // CRITICAL FIX: Verify that entire word fits on the board
+                int wordLength = static_cast<int>(currentWord.length());
+                int endRow = isHorizontal ? finalRow : finalRow + wordLength - 1;
+                int endCol = isHorizontal ? finalCol + wordLength - 1 : finalCol;
+                
+                // Check if the entire word is within board bounds
+                if (endRow >= 0 && endRow < 15 && endCol >= 0 && endCol < 15) {
+                    // Validate cross-words before adding candidate
+                    MoveCandidate candidate = {finalRow, finalCol, currentWord, 0, isHorizontal};
+                    if (validateMoveCrossWords(letters, candidate) && hasNonBlankTile(letters, candidate)) {
+                        results.push_back(candidate);
+                    }
                 }
             }
         }
@@ -1276,7 +1318,10 @@ void AIPlayer::genMovesGaddag(int anchorRow, int anchorCol, const LetterBoard &l
                     // The delimiter edge is at index 26
                     int delimIdx = gDawg.nodes[childIdx].children[26];
                     if (delimIdx != -1) {
-                        goRight(delimIdx, anchorRow, anchorCol + 1, letters, rackCounts, word, anchorCol, isHorizontal, constraints);
+                        // CRITICAL FIX: Only start a word here if the square to the left is empty
+                        if (anchorCol == 0 || letters[anchorRow][anchorCol - 1] == ' ') {
+                            goRight(delimIdx, anchorRow, anchorCol + 1, letters, rackCounts, word, anchorCol, isHorizontal, constraints);
+                        }
                     }
                     
                     // Backtrack: Increment count
@@ -1316,7 +1361,10 @@ void AIPlayer::goLeft(int nodeIdx, int currRow, int currCol,
             // Yes, if we completed the "Left" part.
             int delimIdx = gDawg.nodes[childIdx].children[26];
             if (delimIdx != -1) {
-                goRight(delimIdx, currRow, anchorCol + 1, letters, rackCounts, newWord, anchorCol, isHorizontal, constraints);
+                // CRITICAL FIX: Only start a word here if the square to the left is empty
+                if (currCol - 1 < 0 || letters[currRow][currCol - 1] == ' ') {
+                    goRight(delimIdx, currRow, anchorCol + 1, letters, rackCounts, newWord, anchorCol, isHorizontal, constraints);
+                }
             }
         }
         return;
@@ -1381,12 +1429,20 @@ void AIPlayer::goRight(int nodeIdx, int currRow, int currCol,
             int finalRow = isHorizontal ? currRow : finalStartCol;
             int finalCol = isHorizontal ? finalStartCol : currRow;
             
-            // Verify bounds
+            // Verify bounds for starting position
             if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
-                // Validate cross-words before adding candidate
-                MoveCandidate candidate = {finalRow, finalCol, currentWord, 0, isHorizontal};
-                if (validateMoveCrossWords(letters, candidate)) {
-                    candidates.push_back(candidate);
+                // CRITICAL FIX: Verify the entire word fits on the board
+                int wordLength = static_cast<int>(currentWord.length());
+                int endRow = isHorizontal ? finalRow : finalRow + wordLength - 1;
+                int endCol = isHorizontal ? finalCol + wordLength - 1 : finalCol;
+                
+                // Check if the entire word is within board bounds
+                if (endRow >= 0 && endRow < 15 && endCol >= 0 && endCol < 15) {
+                    // Validate cross-words before adding candidate
+                    MoveCandidate candidate = {finalRow, finalCol, currentWord, 0, isHorizontal};
+                    if (validateMoveCrossWords(letters, candidate) && hasNonBlankTile(letters, candidate)) {
+                        candidates.push_back(candidate);
+                    }
                 }
             }
         }
