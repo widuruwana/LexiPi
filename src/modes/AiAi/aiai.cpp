@@ -132,9 +132,7 @@ void runAiAi() {
                 continue;
             }
 
-            /*
             if (move.type == MoveType::CHALLENGE) {
-                // AI likely won't challenge in V1, but logic remains
                 challengeMove(bonusBoard, letters, blanks, bag, players,
                               lastSnapShot, lastMove, currentPlayer, canChallenge, dictActive);
                 continue;
@@ -148,18 +146,21 @@ void runAiAi() {
 
                     players[currentPlayer].passCount++;
 
-                    printBoard(bonusBoard, letters);
-                    cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
+                    //printBoard(bonusBoard, letters);
+                    cout << "Scores: Cutie_Pi = " << players[0].score << " | Evil_Pi = " << players[1].score << endl;
+                    cout << (currentPlayer == 0 ? "Cutie_Pi" : "Evil_Pi") << " Exchanged tiles." << endl;
 
                     currentPlayer = 1 - currentPlayer;
                     if (currentPlayer == 0) {
                         cout << "\nYour Turn:" << endl;
-                        printRack(players[currentPlayer].rack);
+                        //printRack(players[currentPlayer].rack);
                     }
+                } else {
+                    if (verbose) cout << "[AI] Exchange failed (Bag empty?). Forcing PASS." << endl;
+                    passTurn(players, currentPlayer, canChallenge, lastMove);
                 }
                 continue;
             }
-            */
 
             if (move.type == MoveType::PLAY) {
                 bool success = executePlayMove(bonusBoard, letters, blanks, bag, players,

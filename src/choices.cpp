@@ -307,12 +307,12 @@ void challengeMove(Board &bonusBoard,
         lastMove.exists = false;
 
         cout << "Board and scores reverted to before the invalid word.\n";
-        printBoard(bonusBoard, letters);
+        //printBoard(bonusBoard, letters);
 
         cout << "Scores: Player 1 = " << players[0].score
              << " | Player 2 = " << players[1].score << endl;
-        cout << "Your rack:\n";
-        printRack(players[currentPlayer].rack);
+        //cout << "Your rack:\n";
+        //printRack(players[currentPlayer].rack);
 
     } else {
         // Challenge Failed.
@@ -324,13 +324,13 @@ void challengeMove(Board &bonusBoard,
         canChallenge = false;
         lastMove.exists = false;
 
-        printBoard(bonusBoard, letters);
+        //printBoard(bonusBoard, letters);
 
         cout << "Scores: Player 1 = " << players[0].score
              << " | Player 2 = " << players[1].score << endl;
 
-        cout << "You still have your turn. Your rack:\n";
-        printRack(players[currentPlayer].rack);
+        //cout << "You still have your turn. Your rack:\n";
+        //printRack(players[currentPlayer].rack);
     }
 }
 

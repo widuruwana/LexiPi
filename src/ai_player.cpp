@@ -1,6 +1,7 @@
 #include "../include/ai_player.h"
 #include "../include/heuristics.h" // For scoring
 #include "../include/tile_tracker.h"
+#include <cstring>
 #include <algorithm>
 #include <iostream>
 #include <chrono>
@@ -222,6 +223,148 @@ AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &lett
     return diff;
 }
 
+bool AIPlayer::isRackBad(const TileRack &rack) {
+    int vowels = 0, consonants = 0;
+    bool hasQ = false, hasU = false;
+    int counts[26] = {0};
+
+    for (const Tile &t : rack) {
+        if (t.letter == '?') {
+            vowels++;
+            consonants++;
+            continue;
+        }
+        if (strchr("AEIOU", t.letter)) {
+            vowels++;
+        } else {
+            consonants++;
+        }
+        if (t.letter == 'Q') hasQ = true;
+        if (t.letter == 'U') hasU = true;
+        if (isalpha(t.letter)) {
+            counts[toupper(t.letter) - 'A']++;
+        }
+    }
+
+    // 1. Q without U
+    if (hasQ && !hasU) return true;
+    // 2. Imbalance (only if rack is full-ish)
+    if (rack.size() >= 5 && (vowels == 0 || consonants == 0)) return true;
+    // 3. Duplicates
+    for (int i=0; i<26; i++) if (counts[i] >= 3) return true;
+
+    return false;
+}
+
+string AIPlayer::getTilesToExchange(const TileRack &rack) {
+    string toExchange = "";
+    bool hasQ = false;
+    for(auto t : rack) if(t.letter=='Q') hasQ=true;
+
+    for (const Tile &t : rack) {
+        bool keep = false;
+        // Always keep Blank, S, and U (if we have Q)
+        if (t.letter == '?' || t.letter == 'S') keep = true;
+        if (t.letter == 'U' && hasQ) keep = true;
+
+        // Keep high-value retainers "RETINA" if we aren't dumping
+        string retain = "RETINA";
+        if (retain.find(t.letter) != string::npos && !keep) keep = true;
+
+        if (!keep) toExchange += t.letter;
+    }
+
+    // SAFETY: If heuristics kept everything but rack was bad, dump everything.
+    if (toExchange.empty() && !rack.empty()) {
+        for(auto t : rack) toExchange += t.letter;
+    }
+    return toExchange;
+}
+
+// Challenge Scanner
+bool AIPlayer::shouldChallenge(const Move &opponentMove, const LetterBoard &board) const {
+    if (opponentMove.type != MoveType::PLAY) return false;
+
+    // We scan the board to find the ACTUAL words formed.
+
+    int startR = opponentMove.row;
+    int startC = opponentMove.col;
+    int dr = opponentMove.horizontal ? 0 : 1;
+    int dc = opponentMove.horizontal ? 1 : 0;
+
+    // 1. Reconstruct and Validate MAIN WORD
+    // Scan backwards from the start position to find the real beginning (in case of hooks/prefixes)
+    int r = startR;
+    int c = startC;
+    while (r - dr >= 0 && c - dc >= 0 && board[r - dr][c - dc] != ' ') {
+        r -= dr;
+        c -= dc;
+    }
+
+    // Now scan forward to build the full string
+    string mainWord = "";
+    int scanR = r;
+    int scanC = c;
+    while (scanR < 15 && scanC < 15 && board[scanR][scanC] != ' ') {
+        mainWord += board[scanR][scanC];
+        scanR += dr;
+        scanC += dc;
+    }
+
+    // Check Main Word
+    if (mainWord.length() > 1 && !gDawg.isValidWord(mainWord)) {
+        cout << "\n[AI] Challenging! Main word '" << mainWord << "' is invalid." << endl;
+        return true;
+    }
+
+    // 2. Reconstruct and Validate CROSS WORDS
+    // We iterate through the main word's path. Any tile that has perpendicular neighbors
+    // forms a cross word that must be checked.
+
+    // Reset scan pointers to start of Main Word
+    scanR = r;
+    scanC = c;
+
+    int pdr = opponentMove.horizontal ? 1 : 0; // Perpendicular DR
+    int pdc = opponentMove.horizontal ? 0 : 1; // Perpendicular DC
+
+    for (size_t i = 0; i < mainWord.length(); ++i) {
+        // Check for perpendicular neighbors at current square (scanR, scanC)
+        bool hasNeighbor = false;
+        if (scanR - pdr >= 0 && scanC - pdc >= 0 && board[scanR - pdr][scanC - pdc] != ' ') hasNeighbor = true;
+        if (scanR + pdr < 15 && scanC + pdc < 15 && board[scanR + pdr][scanC + pdc] != ' ') hasNeighbor = true;
+
+        if (hasNeighbor) {
+            // Found a cross word! Scan backwards to find its start.
+            int crossR = scanR;
+            int crossC = scanC;
+            while (crossR - pdr >= 0 && crossC - pdc >= 0 && board[crossR - pdr][crossC - pdc] != ' ') {
+                crossR -= pdr;
+                crossC -= pdc;
+            }
+
+            // Scan forward to build it
+            string crossWord = "";
+            while (crossR < 15 && crossC < 15 && board[crossR][crossC] != ' ') {
+                crossWord += board[crossR][crossC];
+                crossR += pdr;
+                crossC += pdc;
+            }
+
+            if (crossWord.length() > 1 && !gDawg.isValidWord(crossWord)) {
+                cout << "[AI] Challenging! Cross-word '" << crossWord << "' is invalid." << endl;
+                return true;
+            }
+        }
+
+        // Step to next tile in main word
+        scanR += dr;
+        scanC += dc;
+    }
+
+    return false;
+}
+
 Move AIPlayer::getMove(const Board &bonusBoard,
                        const LetterBoard &letters,
                        const BlankBoard &blankBoard,
@@ -300,6 +443,38 @@ Move AIPlayer::getMove(const Board &bonusBoard,
                   return a.score > b.score;
     });
 
+    // Exchange decision
+    bool shouldExchange = false;
+    int bestScore = candidates.empty() ? 0 : candidates[0].score;
+
+    if (candidates.empty() && bag.size() >= 7) {
+        shouldExchange = true;
+    } else if (bestScore < 14 && isRackBad(myRack) && bag.size() >= 7) {
+        shouldExchange = true;
+        cout << "[AI] Rack is garbage. Attempting exchange." << endl;
+    }
+
+    if (shouldExchange) {
+        // Double check we actually HAVE tiles to exchange (prevent empty-bag loop)
+        if (bag.size() < 7) {
+            cout << "[AI] Wanted to exchange, but bag has < 7 tiles. Must play or pass." << endl;
+            if (candidates.empty()) { Move p; p.type=MoveType::PASS; return p; }
+            // If we have moves, fall through to play the best one instead of passing
+        }
+        else {
+            Move exMove;
+            exMove.type = MoveType::EXCHANGE;
+            exMove.exchangeLetters = getTilesToExchange(myRack);
+            exMove.word = ""; // Clear
+
+            cout << "[AI] Exchanging tiles: " << exMove.exchangeLetters << endl;
+            return exMove;
+        }
+    }
+    else if (candidates.empty()) {
+        Move p; p.type=MoveType::PASS; return p;
+    }
+
     const MoveCandidate &bestMove = candidates[0];
 
     // Generate correct move string
@@ -376,6 +551,19 @@ void AIPlayer::genMovesGADDAG(int row,
     string rackStr = "";
     for (const Tile &t : rack) rackStr += t.letter;
 
+    // Calculate Board Mask (Tiles that already exist in this row)
+    uint32_t boardRowMask = 0;
+    for(int c = 0; c < 15; c++) {
+        if(board[row][c] != ' ') {
+            boardRowMask |= (1 << (board[row][c] - 'A'));
+        }
+    }
+
+    // Create the "Universe" Mask (My Rack + The Board Row)
+    // If a letter isn't in this mask, it is IMPOSSIBLE to use it in this move.
+    uint32_t myRackMask = getRackMask(rackStr);
+    uint32_t pruningMask = myRackMask | boardRowMask;
+
     // Identify Anchors: empty squares adjacent to existing tiles
     for (int c = 0; c < 15; c++) {
 
@@ -400,7 +588,8 @@ void AIPlayer::genMovesGADDAG(int row,
 
         // Start GADDAG search at this achor (going left)
         // Passing the rack mask for speed
-        goLeft(row, c, gDawg.rootIndex, constraints, getRackMask(rackStr), rackStr, "", board, isHorizontal, c);
+        goLeft(row, c, gDawg.rootIndex, constraints, myRackMask, pruningMask,
+            rackStr, "", board, isHorizontal, c);
     }
 }
 
@@ -409,6 +598,7 @@ void AIPlayer::goLeft(int row,
                       int node,
                       const RowConstraint &constraints,
                       uint32_t rackMask,
+                      uint32_t pruningMask,
                       string currentRack,
                       string wordSoFar,
                       const LetterBoard &board,
@@ -417,19 +607,24 @@ void AIPlayer::goLeft(int row,
     // Process the current node (Can we stop going left?)
     // If we have a seperate edge here, it means we can turn around and go right
     // in GADDAG the seperator is an edge to a new node.
-    int sepIndex = SEPARATOR;
-    if ((gDawg.nodes[node].edgeMask >> sepIndex) & 1) {
-        int separatorNode = gDawg.getChild(node, sepIndex);
 
-        // we have reversed prefix (ex: "VER")
-        string correctedPrefix = wordSoFar;
+    bool canStopGoingLeft = (col < 0) || (board[row][col] == ' ');
 
-        // Reversing it to get actual prefix (ex: "REV")
-        reverse(correctedPrefix.begin(), correctedPrefix.end());
+    if (canStopGoingLeft) {
+        int sepIndex = SEPARATOR;
+        if ((gDawg.nodes[node].edgeMask >> sepIndex) & 1) {
+            int separatorNode = gDawg.getChild(node, sepIndex);
 
-        // Send it to goRight
-        goRight(row, anchorCol + 1, separatorNode, constraints, rackMask,
-            currentRack, correctedPrefix, board, isHoriz, anchorCol);
+            // we have reversed prefix (ex: "VER")
+            string correctedPrefix = wordSoFar;
+
+            // Reversing it to get actual prefix (ex: "REV")
+            reverse(correctedPrefix.begin(), correctedPrefix.end());
+
+            // Send it to goRight
+            goRight(row, anchorCol + 1, separatorNode, constraints, rackMask, pruningMask,
+                currentRack, correctedPrefix, board, isHoriz, anchorCol);
+        }
     }
 
     // 2. Continue Going Left?
@@ -450,7 +645,7 @@ void AIPlayer::goLeft(int row,
 
         // Recurse with that letter
         int nextNode = gDawg.getChild(node, charIdx);
-        goLeft(row, col - 1, nextNode, constraints, rackMask,
+        goLeft(row, col - 1, nextNode, constraints, rackMask, pruningMask,
             currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol);
     }
     else {
@@ -467,7 +662,7 @@ void AIPlayer::goLeft(int row,
             int offset = __builtin_popcount(gDawg.nodes[node].edgeMask & mask);
             int nextNode = gDawg.childrenPool[gDawg.nodes[node].firstChildIndex + offset];
 
-            if ( (gDawg.nodes[nextNode].subtreeMask & rackMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
+            if ( (gDawg.nodes[nextNode].subtreeMask &  pruningMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
                 //  Oracle: You have no tiles for anything down this path. Prune it
                 effectiveMask &= ~(1 << i);
                 continue;
@@ -481,7 +676,7 @@ void AIPlayer::goLeft(int row,
                 string nextRack = currentRack;
                 nextRack.erase(found, 1);
 
-                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack),
+                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
                     nextRack, wordSoFar + letter, board, isHoriz, anchorCol);
             }else if (isBlank) {
                 // Blank handling
@@ -490,7 +685,7 @@ void AIPlayer::goLeft(int row,
                 nextRack.erase(b, 1);
                 char blankChar = tolower(letter); // Mark as blank
 
-                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack),
+                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
                     nextRack, wordSoFar + blankChar, board, isHoriz, anchorCol);
             }
 
@@ -504,6 +699,7 @@ void AIPlayer::goRight(int row,
                        int node,
                        const RowConstraint &constraints,
                        uint32_t rackMask,
+                       uint32_t pruningMask,
                        string currentRack,
                        string wordSoFar,
                        const LetterBoard &board,
@@ -553,7 +749,7 @@ void AIPlayer::goRight(int row,
 
         int nextNode = gDawg.getChild(node, charIdx);;
 
-        goRight(row, col + 1, nextNode, constraints, rackMask,
+        goRight(row, col + 1, nextNode, constraints, rackMask,  pruningMask,
             currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol);
     } else {
         // Empty
@@ -567,7 +763,7 @@ void AIPlayer::goRight(int row,
             int offset = __builtin_popcount(gDawg.nodes[node].edgeMask & mask);
             int nextNode = gDawg.childrenPool[gDawg.nodes[node].firstChildIndex + offset];
 
-            if ( (gDawg.nodes[nextNode].subtreeMask & rackMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
+            if ( (gDawg.nodes[nextNode].subtreeMask &  pruningMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
                 //  Oracle: You have no tiles for anything down this path. Prune it
                 effectiveMask &= ~(1 << i);
                 continue;
@@ -579,14 +775,14 @@ void AIPlayer::goRight(int row,
             if (found != string::npos) {
                 string nextRack = currentRack;
                 nextRack.erase(found, 1);
-                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack),
+                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
                     nextRack, wordSoFar + letter, board, isHoriz, anchorCol);
 
             } else if (isBlank) {
                 string nextRack = currentRack;
                 size_t b = nextRack.find('?');
                 nextRack.erase(b, 1);
-                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack),
+                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
                     nextRack, wordSoFar + (char)tolower(letter), board, isHoriz, anchorCol);
             }
             effectiveMask &= ~(1 << i);

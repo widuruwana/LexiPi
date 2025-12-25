@@ -35,6 +35,8 @@ public:
     // Placeholder for now (required by pure virtual)
     Move getEndGameDecision() override;
 
+    bool shouldChallenge(const Move &opponentMove, const LetterBoard &board) const;
+
 private:
     vector <MoveCandidate> candidates;
 
@@ -70,12 +72,12 @@ private:
 
     // GADDAG Traversal: Going "Backwards" (Left/Up) through the graph
     void goLeft(int row, int col, int node, const RowConstraint &constraints,
-                uint32_t rackMask, std::string currentRack, std::string wordSoFar,
+                uint32_t rackMask, uint32_t pruningMask, string currentRack, string wordSoFar,
                 const LetterBoard &board, bool isHoriz, int anchorCol);
 
     // GADDAG Traversal: Going "Forwards" (Right/Down) after hitting a separator
     void goRight(int row, int col, int node, const RowConstraint &constraints,
-                 uint32_t rackMask, std::string currentRack, std::string wordSoFar,
+                 uint32_t rackMask, uint32_t pruningMask, string currentRack, string wordSoFar,
                  const LetterBoard &board, bool isHoriz, int anchorCol);
 
     // Helper struct for engine translation
@@ -90,4 +92,7 @@ private:
 
     void solveRow(int rowIdx, const LetterBoard &letters,
                   const TileRack &rack, bool isHorizontal, bool isEmptyBoard);
+
+    bool isRackBad(const TileRack &rack);
+    std::string getTilesToExchange(const TileRack &rack);
 };

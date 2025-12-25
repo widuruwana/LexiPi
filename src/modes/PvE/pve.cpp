@@ -1,6 +1,10 @@
+#include "../../../include/modes/PvE/pve.h"
+
 #include <iostream>
 #include <string>
 #include <sstream>
+#include <thread>
+#include <chrono>
 
 #include "../../../include/board.h"
 #include "../../../include/move.h"
@@ -144,6 +148,18 @@ void runPvE() {
                     cout << "\nYour Turn:" << endl;
                     printRack(players[currentPlayer].rack);
                 }
+            } else {
+                if (currentPlayer == 1) {
+                    cout << "[AI] Exchange failed (Bag empty?). Forcing PASS.\n";
+                    passTurn(players, currentPlayer, canChallenge, lastMove);
+
+                    // Force switch to Human
+                    currentPlayer = 0;
+                    cout << "\nYour Turn:" << endl;
+                    printRack(players[currentPlayer].rack);
+                } else {
+                    cout << "Invalid exchange. Try again.\n";
+                }
             }
             continue;
         }
@@ -160,12 +176,34 @@ void runPvE() {
                 lastMove.horizontal = move.horizontal;
                 canChallenge = true;
 
-                printBoard(bonusBoard, letters);
-                cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
+                bool turnSwitched = false;
+                if (currentPlayer == 0) { // Human just played
+                    AIPlayer* ai = dynamic_cast<AIPlayer*>(controllers[1]);
+                    // checking if AI is looking to challenge the move
+                    if (ai && ai->shouldChallenge(move, letters)) {
+                        challengePhrase();
+                        cout << "\n\n";
+                        this_thread::sleep_for(chrono::milliseconds(2500)); // dramatic pause
+                        printBoard(bonusBoard, letters);
 
-                currentPlayer = 1 - currentPlayer;
+                        // Execute challenge as AI
+                        int challengerIndex = 1;
+                        challengeMove(bonusBoard, letters, blanks, bag, players,
+                                      lastSnapShot, lastMove, challengerIndex, canChallenge, dictActive);
+                        printBoard(bonusBoard, letters);
+                        currentPlayer = 1;
+                        turnSwitched = true;
+                    }
+                }
+
+                if (!turnSwitched) {
+                    printBoard(bonusBoard, letters);
+                    cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
+                    currentPlayer = 1 - currentPlayer;
+                }
+
                 if (currentPlayer == 0) {
-                    cout << "\nYour Turn:" << endl;
+                    //cout << "\nYour Turn:" << endl;
                     printRack(players[currentPlayer].rack);
                 }
             } else {
@@ -173,7 +211,7 @@ void runPvE() {
                     cout << "[Critical Error] AI played an invalid move. Force passing to prevent an infinity loop\n";
                     passTurn(players, currentPlayer, canChallenge, lastMove);
                     if (currentPlayer == 0) {
-                        cout << "\nYour Turn:" << endl;
+                        //cout << "\nYour Turn:" << endl;
                         printRack(players[currentPlayer].rack);
                     }
                 } else {

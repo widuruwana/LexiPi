@@ -113,6 +113,8 @@ void runPvP() {
         if (move.type == MoveType::CHALLENGE) {
             challengeMove(bonusBoard, letters, blanks, bag, players,
                           lastSnapShot, lastMove, currentPlayer, canChallenge, dictActive);
+            printBoard(bonusBoard, letters);
+            printRack(players[currentPlayer].rack);
             continue;
         }
 
