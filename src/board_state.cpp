@@ -57,14 +57,14 @@ void BoardStateManager::makeMove(
         
         // Apply placement
         letters[placement.row][placement.col] = placement.letter;
-        blanks[placement.row][placement.col] = placement.isBlank;
+        blanks[placement.row][placement.col] = placement.is_blank;
         
         // Update hash: add new piece
-        int newIdx = (placement.isBlank ? 26 : (placement.letter - 'A'));
+        int newIdx = (placement.is_blank ? 26 : (placement.letter - 'A'));
         if (newIdx >= 0 && newIdx < 27) {
             hash ^= pieceHash[placement.row][placement.col][newIdx];
         }
-        if (placement.isBlank) {
+        if (placement.is_blank) {
             hash ^= blankHash[placement.row][placement.col];
         }
         

@@ -18,7 +18,7 @@ uint64_t MoveKeyGenerator::hashRack(const TileRack& rack) {
     int counts[27] = {0}; // 0-25 for A-Z, 26 for blank
     
     for (const Tile& tile : rack) {
-        if (tile.letter == '?') {
+        if (tile.is_blank) {
             counts[26]++;
         } else {
             int idx = toupper(tile.letter) - 'A';
@@ -52,7 +52,7 @@ uint32_t MoveKeyGenerator::hashPlacements(const std::vector<TilePlacement>& plac
     // Hash the sorted placements
     uint32_t h = 0;
     for (const auto& placement : sorted) {
-        int letterIdx = (placement.isBlank ? 26 : (placement.letter - 'A'));
+        int letterIdx = (placement.is_blank ? 26 : (placement.letter - 'A'));
         h = hashCombine(h, static_cast<uint32_t>(letterIdx));
         h = hashCombine(h, static_cast<uint32_t>(placement.row));
         h = hashCombine(h, static_cast<uint32_t>(placement.col));

@@ -1,16 +1,9 @@
 #pragma once
 
 #include "board.h"
+#include "move.h" // Include move.h for TilePlacement
 #include <vector>
 #include <stack>
-
-// Structured placement with explicit blank tracking
-struct TilePlacement {
-    int row;
-    int col;
-    char letter;      // Always uppercase (A-Z)
-    bool isBlank;    // True if this tile is a blank
-};
 
 // Track a single board modification
 struct BoardChange {

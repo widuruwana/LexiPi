@@ -37,6 +37,7 @@ bool executePlayMove(Board &bonusBoard,
     lastSnapShot.players[0] = players[0];
     lastSnapShot.players[1] = players[1];
 
+    // Use legacy playWord for now, but it now uses MoveValidator internally
     MoveResult result = playWord(
         bonusBoard,
         letters,
@@ -50,29 +51,7 @@ bool executePlayMove(Board &bonusBoard,
     );
 
     if (result.success) {
-        // Validate word and cross-words against dictionary
-        string mainWord = extractMainWord(letters, move.row, move.col, move.horizontal);
-        vector<string> crossWords = crossWordList(letters, lastSnapShot.letters,
-                                                   move.row, move.col, move.horizontal);
-        
-        bool allValid = isValidWord(mainWord);
-        for (const string& cw : crossWords) {
-            if (!isValidWord(cw)) {
-                allValid = false;
-                break;
-            }
-        }
-        
-        if (!allValid) {
-            cout << "Invalid word(s) played. Move rejected." << endl;
-            cout << "Main word: " << mainWord << endl;
-            for (const string& cw : crossWords) {
-                if (!isValidWord(cw)) {
-                    cout << "Invalid cross-word: " << cw << endl;
-                }
-            }
-            return false;
-        }
+        // Validation is now done inside playWord via MoveValidator
         
         cout << "Move played. Score: " << result.score << endl;
         currentPlayer.score += result.score;
@@ -81,7 +60,7 @@ bool executePlayMove(Board &bonusBoard,
         players[1].passCount = 0;
         return true;
     } else {
-        cout << "Unexpected error applying move: " << result.errorMessage << endl;
+        cout << "Move rejected: " << result.errorMessage << endl;
         return false;
     }
 }

@@ -1,5 +1,6 @@
 #include "../include/rack.h"
 #include "../include/tiles.h"
+#include "../include/random.h"
 
 #include <iostream>
 #include <algorithm>
@@ -55,7 +56,7 @@ void printRack(const TileRack &rack) {
         bottomLine += "+-----";
 
         // Letter (centered).
-        char letterChar = (t.letter == '?') ? ' ' : t.letter;
+        char letterChar = t.is_blank ? '?' : t.letter;
         string letterStr(1, letterChar);
         string centeredLetter = centerText(letterStr, innerWidth);
         letterLine += "|" + centeredLetter;
@@ -114,7 +115,9 @@ bool exchangeRack(TileRack &rack, const string& lettersStr, TileBag &bag) {
     // Uppercaseing the requested letters
     string letters = lettersStr;
     for (char &c : letters) {
-        c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+        if (c != '?') {
+            c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+        }
     }
 
     // Trying to remove one matching tile from tempRack for each requested letter
@@ -125,8 +128,14 @@ bool exchangeRack(TileRack &rack, const string& lettersStr, TileBag &bag) {
         // tempRack.begin() returns vector<Tile>::iterator
         // And a vector iterator behaves exactly like a pointer to an element.
         for (auto it = tempRack.begin(); it != tempRack.end(); ++it) {
-            char rackCh = static_cast<char>(toupper(static_cast<unsigned char>((*it).letter)));
-            if (rackCh == ch) {
+            bool match = false;
+            if (ch == '?') {
+                if (it->is_blank) match = true;
+            } else {
+                if (!it->is_blank && it->letter == ch) match = true;
+            }
+
+            if (match) {
                 removed.push_back(*it);
                 tempRack.erase(it);
                 found = true;
@@ -158,8 +167,7 @@ bool exchangeRack(TileRack &rack, const string& lettersStr, TileBag &bag) {
 
 //Shuffle the rack play order randomly
 void shuffleRack(TileRack &rack) {
-    static mt19937 rng(static_cast<unsigned int>(time(nullptr)));
-    shuffle(rack.begin(), rack.end(), rng);
+    Random::getInstance().shuffle(rack);
 }
 
 // Parse a player command for the rack.

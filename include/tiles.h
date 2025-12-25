@@ -7,8 +7,9 @@ using namespace std;
 
 // Represents a single scrabble Tile
 typedef struct {
-    char letter; //"A to Z" or "?" for blank
+    char letter; //"A to Z" (always uppercase)
     int points; //score value
+    bool is_blank; // true if this is a blank tile
 }Tile;
 
 // Tile bag
@@ -22,7 +23,3 @@ void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool rev
 
 // Shuffle the tile bag
 void shuffleTileBag(TileBag &bag);
-
-
-
-

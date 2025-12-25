@@ -239,6 +239,6 @@ Move HumanPlayer::parseMoveInput(const Board &bonusBoard,
         return {MoveType::NONE};
     }
 
-    return Move::Play(row, col, horizontal, word);
+    return Move::Play(row, col, horizontal, word, preview.placements);
 
 }

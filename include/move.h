@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include "board.h"
 #include "tiles.h"
 #include "rack.h"
@@ -14,11 +15,19 @@ struct Player {
     int passCount = 0;
 };
 
+struct TilePlacement {
+    int row;
+    int col;
+    char letter; // The letter placed (A-Z)
+    bool is_blank; // Was this a blank tile?
+};
+
 // Result of trying to play a word
 struct MoveResult {
     bool success;
     int score;
     string errorMessage;
+    vector<TilePlacement> placements; // The explicit placements made
 };
 
 enum class MoveType {
@@ -34,7 +43,11 @@ enum class MoveType {
 struct Move {
     MoveType type = MoveType::NONE;
 
-    // For playing
+    // Canonical representation
+    vector<TilePlacement> placements; // For PLAY
+    vector<Tile> exchangeTiles; // For EXCHANGE
+
+    // Legacy/Convenience fields (kept for compatibility but placements is source of truth)
     string word; // Playing word/exchanging tiles
     int row = -1;
     int col = -1;
@@ -46,11 +59,87 @@ struct Move {
     static Move Pass() { return {MoveType::PASS}; }
     static Move Quit() { return {MoveType::QUIT}; }
     static Move Challenge() { return {MoveType::CHALLENGE}; }
-    static Move Play(int r, int c, bool h, string w) {
-        return {MoveType::PLAY, w, r, c, h};
+    
+    static Move Play(const vector<TilePlacement>& placements) {
+        Move m;
+        m.type = MoveType::PLAY;
+        m.placements = placements;
+        // Infer legacy fields if needed, or leave them empty/default
+        if (!placements.empty()) {
+            m.row = placements[0].row;
+            m.col = placements[0].col;
+            // Infer horizontal/word? 
+            // It's better if the caller provides them if they want them, 
+            // but for now let's just set the type and placements.
+        }
+        return m;
     }
-    static Move Exchange(string tiles) {
-        return {MoveType::EXCHANGE, " ", -1, -1, true, tiles};
+
+    // Overload for legacy support during refactor, but we should move away from this
+    static Move Play(int r, int c, bool h, string w, const vector<TilePlacement>& placements) {
+        Move m;
+        m.type = MoveType::PLAY;
+        m.row = r;
+        m.col = c;
+        m.horizontal = h;
+        m.word = w;
+        m.placements = placements;
+        return m;
+    }
+    
+    // Legacy Play overload (without placements) - constructs placements from word
+    static Move Play(int r, int c, bool h, string w) {
+        Move m;
+        m.type = MoveType::PLAY;
+        m.row = r;
+        m.col = c;
+        m.horizontal = h;
+        m.word = w;
+        
+        // Construct placements
+        int dr = h ? 0 : 1;
+        int dc = h ? 1 : 0;
+        int cr = r;
+        int cc = c;
+        
+        for (char ch : w) {
+            TilePlacement tp;
+            tp.row = cr;
+            tp.col = cc;
+            if (islower(ch)) {
+                tp.letter = static_cast<char>(toupper(ch));
+                tp.is_blank = true;
+            } else {
+                tp.letter = ch;
+                tp.is_blank = false;
+            }
+            m.placements.push_back(tp);
+            cr += dr;
+            cc += dc;
+        }
+        
+        return m;
+    }
+
+    static Move Exchange(const vector<Tile>& tiles) {
+        Move m;
+        m.type = MoveType::EXCHANGE;
+        m.exchangeTiles = tiles;
+        // Update legacy string
+        string s = "";
+        for(const auto& t : tiles) s += t.letter;
+        m.exchangeLetters = s;
+        return m;
+    }
+    
+    // Legacy Exchange
+    static Move Exchange(string tilesStr) {
+        Move m;
+        m.type = MoveType::EXCHANGE;
+        m.exchangeLetters = tilesStr;
+        // We can't populate exchangeTiles here without the rack/bag context to know if they are blanks
+        // This should be avoided.
+        return m;
     }
 };
 

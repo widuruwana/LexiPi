@@ -879,6 +879,30 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     result.col = engineMove.col;
     result.word = engineMove.word;
     result.horizontal = bestMove.isHorizontal;
+
+    // Populate placements
+    int r = result.row;
+    int c = result.col;
+    int dr = result.horizontal ? 0 : 1;
+    int dc = result.horizontal ? 1 : 0;
+
+    for (char ch : result.word) {
+        TilePlacement tp;
+        tp.row = r;
+        tp.col = c;
+        if (islower(ch)) {
+            tp.letter = static_cast<char>(toupper(ch));
+            tp.is_blank = true;
+        } else {
+            tp.letter = ch;
+            tp.is_blank = false;
+        }
+        result.placements.push_back(tp);
+
+        r += dr;
+        c += dc;
+    }
+
     return result;
 }
 

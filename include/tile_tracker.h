@@ -8,6 +8,7 @@
 #include <algorithm>
 #include "tiles.h"
 #include "heuristics.h"
+#include "random.h"
 
 using namespace std;
 
@@ -156,22 +157,20 @@ public:
                 Tile t;
                 t.letter = c;
                 t.points = getTileValue(c);
+                t.is_blank = (c == '?');
                 rack.push_back(t);
             }
             return rack;
         }
         
-        // Shuffle and draw
-        // Use a static random device to avoid re-seeding every time
-        static std::random_device rd;
-        static std::mt19937 g(rd());
-        
-        std::shuffle(pool.begin(), pool.end(), g);
+        // Shuffle and draw using deterministic RNG
+        Random::getInstance().shuffle(pool);
         
         for (int i = 0; i < rackSize; i++) {
             Tile t;
             t.letter = pool[i];
             t.points = getTileValue(pool[i]);
+            t.is_blank = (pool[i] == '?');
             rack.push_back(t);
         }
         

@@ -3,19 +3,24 @@
 #include "../include/dict.h"
 #include "../include/logger.h"
 #include "../include/tiles.h"  // For getTileValue
+#include "../include/ruleset.h"
 #include <algorithm>
 #include <cctype>
 
 using namespace std;
 
-StructuredMove MoveValidator::fromCandidate(const MoveCandidate& candidate) {
-    StructuredMove move;
-    move.isHorizontal = candidate.isHorizontal;
+Move MoveValidator::fromCandidate(const MoveCandidate& candidate) {
+    Move move;
+    move.type = MoveType::PLAY;
+    move.horizontal = candidate.isHorizontal;
     move.row = candidate.row;
     move.col = candidate.col;
-    move.score = candidate.score;
+    move.word = candidate.word;
     
     // Parse word into placements with blank tracking
+    // Note: This assumes candidate.word ONLY contains new tiles, or caller handles filtering.
+    // If candidate.word contains existing tiles, this will create placements for them,
+    // which might cause rack validation to fail.
     int r = candidate.row;
     int c = candidate.col;
     int dr = candidate.isHorizontal ? 0 : 1;
@@ -25,13 +30,10 @@ StructuredMove MoveValidator::fromCandidate(const MoveCandidate& candidate) {
         TilePlacement placement;
         placement.row = r;
         placement.col = c;
-        placement.isBlank = islower(ch);
+        placement.is_blank = islower(ch);
         placement.letter = static_cast<char>(toupper(ch));
         
         move.placements.push_back(placement);
-        
-        // Build display word (lowercase for blanks)
-        move.displayWord += ch;
         
         r += dr;
         c += dc;
@@ -40,33 +42,24 @@ StructuredMove MoveValidator::fromCandidate(const MoveCandidate& candidate) {
     return move;
 }
 
-MoveCandidate MoveValidator::toCandidate(const StructuredMove& move) {
-    MoveCandidate candidate;
-    candidate.row = move.row;
-    candidate.col = move.col;
-    candidate.isHorizontal = move.isHorizontal;
-    candidate.score = move.score;
-    
-    // Build word from placements
-    for (const auto& placement : move.placements) {
-        candidate.word += placement.isBlank ? 
-            static_cast<char>(tolower(placement.letter)) : placement.letter;
-    }
-    
-    return candidate;
-}
-
 vector<string> MoveValidator::extractFormedWords(
     const LetterBoard& letters,
-    const StructuredMove& move) {
+    const Move& move) {
     
     vector<string> words;
     
+    if (move.placements.empty()) return words;
+
+    // Determine orientation and start from placements or move fields
+    bool isHorizontal = move.horizontal;
+    int startRow = move.placements[0].row;
+    int startCol = move.placements[0].col;
+    
     // Extract main word
-    int r = move.row;
-    int c = move.col;
-    int dr = move.isHorizontal ? 0 : 1;
-    int dc = move.isHorizontal ? 1 : 0;
+    int r = startRow;
+    int c = startCol;
+    int dr = isHorizontal ? 0 : 1;
+    int dc = isHorizontal ? 1 : 0;
     
     // Find start of main word
     while (r - dr >= 0 && r - dr < BOARD_SIZE && 
@@ -90,8 +83,8 @@ vector<string> MoveValidator::extractFormedWords(
     }
     
     // Extract cross words for each placement
-    int crossDr = move.isHorizontal ? 1 : 0;
-    int crossDc = move.isHorizontal ? 0 : 1;
+    int crossDr = isHorizontal ? 1 : 0;
+    int crossDc = isHorizontal ? 0 : 1;
     
     for (const auto& placement : move.placements) {
         // Check if this placement forms a cross word
@@ -161,7 +154,7 @@ bool MoveValidator::validateWords(const vector<string>& words) {
 
 bool MoveValidator::validateConnectivity(
     const LetterBoard& letters,
-    const StructuredMove& move) {
+    const Move& move) {
     
     // Check if board is empty (first move)
     bool boardEmpty = true;
@@ -207,13 +200,13 @@ bool MoveValidator::validateConnectivity(
 
 bool MoveValidator::validateRackUsage(
     const TileRack& rack,
-    const StructuredMove& move) {
+    const Move& move) {
     
     // Count tiles needed from rack
     int needed[27] = {0}; // 0-25 for A-Z, 26 for blank
     
     for (const auto& placement : move.placements) {
-        if (placement.isBlank) {
+        if (placement.is_blank) {
             needed[26]++;
         } else {
             int idx = placement.letter - 'A';
@@ -226,7 +219,7 @@ bool MoveValidator::validateRackUsage(
     // Count tiles available in rack
     int available[27] = {0};
     for (const Tile& tile : rack) {
-        if (tile.letter == '?') {
+        if (tile.is_blank) {
             available[26]++;
         } else {
             int idx = toupper(tile.letter) - 'A';
@@ -249,129 +242,12 @@ bool MoveValidator::validateRackUsage(
     return true;
 }
 
-int MoveValidator::recomputeScore(
-    const Board& bonusBoard,
-    const LetterBoard& letters,
-    const BlankBoard& blanks,
-    const StructuredMove& move) {
-    
-    int totalScore = 0;
-    int mainWordScore = 0;
-    int mainWordMultiplier = 1;
-    int tilesPlaced = 0;
-    
-    int r = move.row;
-    int c = move.col;
-    int dr = move.isHorizontal ? 0 : 1;
-    int dc = move.isHorizontal ? 1 : 0;
-    
-    // Score main word
-    for (const auto& placement : move.placements) {
-        int letterScore = getTileValue(placement.letter);
-        bool isNewlyPlaced = (letters[placement.row][placement.col] == ' ');
-        
-        if (isNewlyPlaced) {
-            tilesPlaced++;
-            
-            CellType bonus = bonusBoard[placement.row][placement.col];
-            
-            // Letter multipliers (blanks score 0)
-            if (!placement.isBlank) {
-                if (bonus == CellType::DLS) letterScore *= 2;
-                else if (bonus == CellType::TLS) letterScore *= 3;
-            }
-            
-            // Word multipliers
-            if (bonus == CellType::DWS) mainWordMultiplier *= 2;
-            else if (bonus == CellType::TWS) mainWordMultiplier *= 3;
-        }
-        
-        mainWordScore += letterScore;
-    }
-    
-    totalScore += mainWordScore * mainWordMultiplier;
-    
-    // Score cross words
-    int crossDr = move.isHorizontal ? 1 : 0;
-    int crossDc = move.isHorizontal ? 0 : 1;
-    
-    for (const auto& placement : move.placements) {
-        bool isNewlyPlaced = (letters[placement.row][placement.col] == ' ');
-        if (!isNewlyPlaced) continue;
-        
-        // Check for cross word
-        bool hasNeighbor = false;
-        int nr = placement.row - crossDr;
-        int nc = placement.col - crossDc;
-        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && 
-            letters[nr][nc] != ' ') {
-            hasNeighbor = true;
-        }
-        
-        nr = placement.row + crossDr;
-        nc = placement.col + crossDc;
-        if (!hasNeighbor && nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && 
-            letters[nr][nc] != ' ') {
-            hasNeighbor = true;
-        }
-        
-        if (hasNeighbor) {
-            // Find start of cross word
-            int cr = placement.row;
-            int cc = placement.col;
-            
-            while (cr - crossDr >= 0 && cr - crossDr < BOARD_SIZE && 
-                   cc - crossDc >= 0 && cc - crossDc < BOARD_SIZE && 
-                   letters[cr - crossDr][cc - crossDc] != ' ') {
-                cr -= crossDr;
-                cc -= crossDc;
-            }
-            
-            // Score cross word
-            int crossScore = 0;
-            int crossMult = 1;
-            
-            while (cr >= 0 && cr < BOARD_SIZE && cc >= 0 && cc < BOARD_SIZE && 
-                   letters[cr][cc] != ' ') {
-                char ch = letters[cr][cc];
-                int letterScore = getTileValue(ch);
-                
-                if (cr == placement.row && cc == placement.col) {
-                    // This is the newly placed tile
-                    CellType bonus = bonusBoard[cr][cc];
-                    
-                    if (!placement.isBlank) {
-                        if (bonus == CellType::DLS) letterScore *= 2;
-                        else if (bonus == CellType::TLS) letterScore *= 3;
-                    }
-                    
-                    if (bonus == CellType::DWS) crossMult *= 2;
-                    else if (bonus == CellType::TWS) crossMult *= 3;
-                }
-                
-                crossScore += letterScore;
-                cr += crossDr;
-                cc += crossDc;
-            }
-            
-            totalScore += crossScore * crossMult;
-        }
-    }
-    
-    // Bingo bonus
-    if (tilesPlaced == 7) {
-        totalScore += 50;
-    }
-    
-    return totalScore;
-}
-
 ValidationResult MoveValidator::validateMove(
     const Board& bonusBoard,
     const LetterBoard& letters,
     const BlankBoard& blanks,
     const TileRack& rack,
-    const StructuredMove& move) {
+    const Move& move) {
     
     ValidationResult result;
     result.isValid = false;
@@ -395,7 +271,7 @@ ValidationResult MoveValidator::validateMove(
     
     for (const auto& placement : move.placements) {
         tempLetters[placement.row][placement.col] = placement.letter;
-        tempBlanks[placement.row][placement.col] = placement.isBlank;
+        tempBlanks[placement.row][placement.col] = placement.is_blank;
     }
     
     // Extract all formed words
@@ -425,8 +301,8 @@ ValidationResult MoveValidator::validateMove(
         return result;
     }
     
-    // Recompute score from scratch
-    result.score = recomputeScore(bonusBoard, tempLetters, tempBlanks, move);
+    // Recompute score from scratch using centralized ruleset
+    result.score = Ruleset::getInstance().scoreMove(bonusBoard, letters, blanks, move);
     
     result.isValid = true;
     return result;

@@ -2,6 +2,8 @@
 
 #include <string>
 #include <cstdint>
+#include "board.h"
+#include "move.h"
 
 // Centralized ruleset configuration
 class Ruleset {
@@ -25,6 +27,9 @@ public:
     // Validation
     bool isInitialized() const { return initialized; }
     
+    // Calculate score for a move
+    int scoreMove(const Board& bonusBoard, const LetterBoard& letters, const BlankBoard& blanks, const Move& move);
+
     // Prevent copying
     Ruleset(const Ruleset&) = delete;
     Ruleset& operator=(const Ruleset&) = delete;

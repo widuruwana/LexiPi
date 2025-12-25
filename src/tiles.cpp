@@ -1,5 +1,6 @@
 #include "../include/tiles.h"
 #include "../include/rack.h"
+#include "../include/random.h"
 
 #include <iostream>
 #include <vector>
@@ -15,14 +16,13 @@ static vector<string> buildTileGroups(const vector<Tile> &bag) {
     int counts[27] = {0};
 
     for (const Tile &tile : bag) {
-        char ch = tile.letter;
-        unsigned char uch = static_cast<unsigned char>(ch);
-
-        if (ch == '?') {
+        if (tile.is_blank) {
             counts[26]++;
-        } else if (isalpha(uch)){
-            ch = static_cast<char>(toupper(uch));
-            counts[ch - 'A']++;
+        } else {
+            char ch = tile.letter;
+            if (ch >= 'A' && ch <= 'Z') {
+                counts[ch - 'A']++;
+            }
         }
     }
 
@@ -115,8 +115,8 @@ void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool rev
     unseen.insert(unseen.end(), opponentRack.begin(), opponentRack.end());
 
     int unseenCount = static_cast<int>(unseen.size());
-    int bagCount = static_cast<int>(bag.size());
-    int oppCount = static_cast<int>(opponentRack.size());
+    // int bagCount = static_cast<int>(bag.size()); // Unused
+    // int oppCount = static_cast<int>(opponentRack.size()); // Unused
 
     cout << "\nTiles not in your rack: " << unseenCount << endl;
 
@@ -146,9 +146,9 @@ TileBag createStandardTileBag() {
         ex: addTiles('A', 1, 9) means 9 tiles of letter A each worth 1 point are added to the bag.
         bag.push_back(Tile{'A', 1}); x 9 times
      */
-    auto addTiles = [&bag](char letter, int points, int count) {
+    auto addTiles = [&bag](char letter, int points, int count, bool is_blank = false) {
         for (int i = 0; i < count; i++) {
-            bag.push_back(Tile{letter, points});
+            bag.push_back(Tile{letter, points, is_blank});
         }
     };
 
@@ -196,14 +196,13 @@ TileBag createStandardTileBag() {
     addTiles('Q',10, 1);
     addTiles('Z',10, 1);
 
-    // Blanks: use '?' as the letter, 0 points
-    addTiles('?', 0, 2);
+    // Blanks: use '?' as the letter, 0 points, is_blank = true
+    addTiles('?', 0, 2, true);
 
     return bag;
 }
 
 //Suffels the tile bag (use once at game start)
 void shuffleTileBag(TileBag &bag) {
-    static mt19937 rng(static_cast<unsigned int>(time(nullptr)));
-    shuffle(bag.begin(), bag.end(), rng);
+    Random::getInstance().shuffle(bag);
 }
