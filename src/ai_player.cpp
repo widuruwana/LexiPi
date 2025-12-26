@@ -5,11 +5,13 @@
 #include <algorithm>
 #include <iostream>
 #include <chrono>
+#include <future> // for async
+#include <thread> // for hardware_concurrency
 
 using namespace std;
 using namespace std::chrono;
 
-const int SEPARATOR = 26;
+const int SEPERATOR = 26;
 
 // Helper to calculate the Rack Mask (which letters do we physically have?)
 uint32_t getRackMask(const string &rackStr) {
@@ -515,6 +517,62 @@ Move AIPlayer::getEndGameDecision() {
 
 void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
 
+    // Verticle columns (transposed)
+    // DRY optimization. We rotate the board.
+    LetterBoard transposed;
+    for (int r = 0; r < 15; r++) {
+        for (int c = 0; c < 15; c++) {
+            transposed[c][r] = letters[r][c];
+        }
+    }
+
+    // Pre-calculate Constraints (Fast enough to do sequentially)
+    RowConstraint constraintsH[15];
+    RowConstraint constraintsV[15];
+
+    for(int i=0; i<15; i++) {
+        constraintsH[i] = ConstraintGenerator::generateRowConstraint(letters, i);
+        constraintsV[i] = ConstraintGenerator::generateRowConstraint(transposed, i);
+    }
+
+    // 3. Multi-Threading Setup
+    unsigned int nThreads = thread::hardware_concurrency();
+    if (nThreads == 0) nThreads = 2; // Safety fallback
+
+    // We create tasks. Each task processes a chunk of rows.
+    vector<future<vector<MoveCandidate>>> futures;
+    int rowsPerThread = 15 / nThreads;
+    if (rowsPerThread == 0) rowsPerThread = 1;
+
+    //futures.clear();
+
+    for (int t = 0; t < nThreads; t++) {
+        int start = t * rowsPerThread;
+        int end = (t == nThreads - 1) ? 15 : start + rowsPerThread;
+
+        futures.push_back(async(launch::async, [this, start, end, &letters, &transposed, &constraintsH, &constraintsV, &rack]() {
+            vector<MoveCandidate> localRes;
+            localRes.reserve(500);
+
+            // Horizontal
+            for (int r = start; r < end; r++) {
+                this->genMovesGADDAG(r, letters, rack, constraintsH[r], true, localRes);
+            }
+            // Vertical (Scanning transposed board)
+            for (int r = start; r < end; r++) {
+                this->genMovesGADDAG(r, transposed, rack, constraintsV[r], false, localRes);
+            }
+            return localRes;
+        }));
+    }
+
+    // Collect Results
+    for (auto &f : futures) {
+        vector<MoveCandidate> res = f.get(); // Blocks until thread finishes
+        candidates.insert(candidates.end(), res.begin(), res.end());
+    }
+
+    /*
     // Calculate the bounding box
     SearchRange range = getActiveBoardArea(letters);
 
@@ -527,27 +585,21 @@ void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
         //solveRow(r, letters, rack, true, range.isEmpty);
     }
 
-    // Verticle columns (transposed)
-    // DRY optimization. We rotate the board.
-    LetterBoard transposed;
-    for (int r = 0; r < 15; r++) {
-        for (int c = 0; c < 15; c++) {
-            transposed[c][r] = letters[r][c];
-        }
-    }
 
     for (int c = range.minCol; c <= range.maxCol; c++) {
         // Generate hybrid constrains for transposed row (originally a column)
         RowConstraint constraints = ConstraintGenerator::generateRowConstraint(transposed, c);
         genMovesGADDAG(c, transposed, rack, constraints, false);
     }
+    */
 }
 
 void AIPlayer::genMovesGADDAG(int row,
                               const LetterBoard &board,
                               const TileRack &rack,
                               const RowConstraint &constraints,
-                              bool isHorizontal) {
+                              bool isHorizontal,
+                              vector<MoveCandidate> &results) {
     string rackStr = "";
     for (const Tile &t : rack) rackStr += t.letter;
 
@@ -589,7 +641,7 @@ void AIPlayer::genMovesGADDAG(int row,
         // Start GADDAG search at this achor (going left)
         // Passing the rack mask for speed
         goLeft(row, c, gDawg.rootIndex, constraints, myRackMask, pruningMask,
-            rackStr, "", board, isHorizontal, c);
+            rackStr, "", board, isHorizontal, c, results);
     }
 }
 
@@ -603,7 +655,8 @@ void AIPlayer::goLeft(int row,
                       string wordSoFar,
                       const LetterBoard &board,
                       bool isHoriz,
-                      int anchorCol) {
+                      int anchorCol,
+                      vector<MoveCandidate> &results) {
     // Process the current node (Can we stop going left?)
     // If we have a seperate edge here, it means we can turn around and go right
     // in GADDAG the seperator is an edge to a new node.
@@ -611,7 +664,7 @@ void AIPlayer::goLeft(int row,
     bool canStopGoingLeft = (col < 0) || (board[row][col] == ' ');
 
     if (canStopGoingLeft) {
-        int sepIndex = SEPARATOR;
+        int sepIndex = SEPERATOR;
         if ((gDawg.nodes[node].edgeMask >> sepIndex) & 1) {
             int separatorNode = gDawg.getChild(node, sepIndex);
 
@@ -623,7 +676,7 @@ void AIPlayer::goLeft(int row,
 
             // Send it to goRight
             goRight(row, anchorCol + 1, separatorNode, constraints, rackMask, pruningMask,
-                currentRack, correctedPrefix, board, isHoriz, anchorCol);
+                currentRack, correctedPrefix, board, isHoriz, anchorCol, results);
         }
     }
 
@@ -646,7 +699,7 @@ void AIPlayer::goLeft(int row,
         // Recurse with that letter
         int nextNode = gDawg.getChild(node, charIdx);
         goLeft(row, col - 1, nextNode, constraints, rackMask, pruningMask,
-            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol);
+            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol, results);
     }
     else {
         // Square is empty. We place a tile.
@@ -677,7 +730,7 @@ void AIPlayer::goLeft(int row,
                 nextRack.erase(found, 1);
 
                 goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol);
+                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol, results);
             }else if (isBlank) {
                 // Blank handling
                 string nextRack = currentRack;
@@ -686,7 +739,7 @@ void AIPlayer::goLeft(int row,
                 char blankChar = tolower(letter); // Mark as blank
 
                 goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + blankChar, board, isHoriz, anchorCol);
+                    nextRack, wordSoFar + blankChar, board, isHoriz, anchorCol, results);
             }
 
             effectiveMask &= ~(1 << i); // Clear bit and continue
@@ -704,7 +757,8 @@ void AIPlayer::goRight(int row,
                        string wordSoFar,
                        const LetterBoard &board,
                        bool isHoriz,
-                       int anchorCol) {
+                       int anchorCol,
+                       vector<MoveCandidate> &results) {
     // 1. Check if we formed a valid word
     if (gDawg.nodes[node].isEndOfWord) {
         // Valid word!
@@ -723,7 +777,7 @@ void AIPlayer::goRight(int row,
             int rFinal = isHoriz ? row : startC;
             int cFinal = isHoriz ? startC : row;
 
-            candidates.push_back({
+            results.push_back({
                 rFinal,
                 cFinal,
                 finalWord,
@@ -750,7 +804,7 @@ void AIPlayer::goRight(int row,
         int nextNode = gDawg.getChild(node, charIdx);;
 
         goRight(row, col + 1, nextNode, constraints, rackMask,  pruningMask,
-            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol);
+            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol, results);
     } else {
         // Empty
         effectiveMask &= (rackMask & boardMask);
@@ -776,14 +830,14 @@ void AIPlayer::goRight(int row,
                 string nextRack = currentRack;
                 nextRack.erase(found, 1);
                 goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol);
+                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol, results);
 
             } else if (isBlank) {
                 string nextRack = currentRack;
                 size_t b = nextRack.find('?');
                 nextRack.erase(b, 1);
                 goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + (char)tolower(letter), board, isHoriz, anchorCol);
+                    nextRack, wordSoFar + (char)tolower(letter), board, isHoriz, anchorCol, results);
             }
             effectiveMask &= ~(1 << i);
         }

@@ -8,7 +8,7 @@ using namespace std;
 Dawg gDawg;
 
 // We use index 26 as the 'Seperator'
-const int SEPARATOR = 26;
+const int SEPERATOR = 26;
 
 struct TempNode {
     int children[27];
@@ -34,7 +34,7 @@ Dawg::Dawg() {
 int getIndex(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
     if (c >= 'a' && c <= 'z') return c - 'a';
-    if (c == '^') return SEPARATOR; // '^' represent the seperator internally.
+    if (c == '^') return SEPERATOR; // '^' represent the seperator internally.
     return -1;
 }
 
@@ -216,7 +216,7 @@ bool Dawg::isValidWord(const string &word) const {
     if (curr == -1) return false;
 
     // Separator
-    curr = getChild(curr, SEPARATOR);
+    curr = getChild(curr, SEPERATOR);
     if (curr == -1) return false;
 
     for (int i = 1; i < word.length(); i++) {

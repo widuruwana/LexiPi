@@ -23,6 +23,8 @@ public:
     AIPlayer() = default;
     virtual ~AIPlayer() = default;
 
+    vector<MoveCandidate> candidates;
+
     // Main entry point called by the game loop
     Move getMove(const Board &bonusBoard,
                  const LetterBoard &letters,
@@ -38,19 +40,12 @@ public:
     bool shouldChallenge(const Move &opponentMove, const LetterBoard &board) const;
 
 private:
-    vector <MoveCandidate> candidates;
 
     // Recursion state helpers
     int currentRow;
     bool currentIsHorizontal;
 
     /*
-    // Recursive "Tunneling" function
-    // nodeIdx: Current node in DAWG
-    // col: Current column on board
-    // currentWord: The word built so far
-    // tilesUsed: which tiles from rack we used (to avoid re-using)
-    // anchorFilled: Have we connected to existing board yet?
     void recursiveSearch(int nodeIdx,
                          int col,
                          const RowConstraint &constraints,
@@ -68,17 +63,20 @@ private:
 
     // The GADDAG Entry Point: Starts searches at "Anchor" squares
     void genMovesGADDAG(int row, const LetterBoard &board, const TileRack &rack,
-                        const RowConstraint &constraints, bool isHorizontal);
+                        const RowConstraint &constraints, bool isHorizontal,
+                        vector<MoveCandidate> &results);
 
     // GADDAG Traversal: Going "Backwards" (Left/Up) through the graph
     void goLeft(int row, int col, int node, const RowConstraint &constraints,
                 uint32_t rackMask, uint32_t pruningMask, string currentRack, string wordSoFar,
-                const LetterBoard &board, bool isHoriz, int anchorCol);
+                const LetterBoard &board, bool isHoriz, int anchorCol,
+                vector<MoveCandidate> &results);
 
     // GADDAG Traversal: Going "Forwards" (Right/Down) after hitting a separator
     void goRight(int row, int col, int node, const RowConstraint &constraints,
                  uint32_t rackMask, uint32_t pruningMask, string currentRack, string wordSoFar,
-                 const LetterBoard &board, bool isHoriz, int anchorCol);
+                 const LetterBoard &board, bool isHoriz, int anchorCol,
+                 vector<MoveCandidate> &results);
 
     // Helper struct for engine translation
     // Covert "formed word" -> "tiles playing"
@@ -90,8 +88,10 @@ private:
     // Calculate the correct engine input (skip existing tiles, shifts start coord)
     DifferentialMove calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove);
 
+    /*
     void solveRow(int rowIdx, const LetterBoard &letters,
                   const TileRack &rack, bool isHorizontal, bool isEmptyBoard);
+    */
 
     bool isRackBad(const TileRack &rack);
     std::string getTilesToExchange(const TileRack &rack);
