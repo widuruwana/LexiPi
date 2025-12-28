@@ -1,4 +1,5 @@
 #include "../../include/spectre/vanguard.h"
+#include "../../include/spectre/spy.h"
 #include "../../include/heuristics.h"
 #include <algorithm>
 #include <random>
@@ -17,114 +18,97 @@ MoveCandidate Vanguard::search(const LetterBoard& board, const Board& bonusBoard
                                    const TileRack& rack, const vector<char>& unseenBag,
                                    Dawg& dict, int timeLimitMs) {
 
-    // Generate Candidate Moves (The "Broad" Search)
-    vector<MoveCandidate> candidates = MoveGenerator::generate(board, rack, dict);
-
-    // If few moves, just return the best static one (save time)
+    // 1. Generate All Candidates
+    // Threading ON for the initial search (it's the only task running)
+    vector<MoveCandidate> candidates = MoveGenerator::generate(board, rack, dict, true);
     if (candidates.empty()) return {};
+
+    // 2. Initial Heuristic Scoring
     for (auto& cand : candidates) {
         cand.score = calculateScore(board, bonusBoard, cand);
     }
 
-    // Sort by static score to prioritize "promising" moves
+    // 3. Sort & Initial Cut
     sort(candidates.begin(), candidates.end(), [](const MoveCandidate& a, const MoveCandidate& b) {
         return a.score > b.score;
     });
 
+    if (candidates.size() > 1 && candidates[0].score > candidates[1].score + 30) {
+        return candidates[0];
+    }
     if (candidates.size() == 1) return candidates[0];
 
-    // Prune: Only simulate the top 10 moves
-    int candidateCount = min((int)candidates.size(), 10);
+    int candidateCount = min((int)candidates.size(), 15);
 
-    // Prepare Simulation Data
-    // Convert Rack to Fast Histogram
     int myRackCounts[27] = {0};
     for (const Tile& t : rack) {
         if (t.letter == '?') myRackCounts[26]++;
         else if (isalpha(t.letter)) myRackCounts[toupper(t.letter) - 'A']++;
     }
 
-    // Monte Carlo Simulation Loop
     vector<double> totalSpread(candidateCount, 0.0);
     vector<int> simCounts(candidateCount, 0);
 
     auto startTime = chrono::high_resolution_clock::now();
-    int simulationsRun = 0;
 
-    // We run simulations in parallel batches
-    //unsigned int nThreads = thread::hardware_concurrency();
-    unsigned int nThreads = 2;
-    //if (nThreads == 0) nThreads = 2;
+    // Use threads for parallel simulation
+    unsigned int nThreads = thread::hardware_concurrency();
+    if (nThreads == 0) nThreads = 2;
+    nThreads = min(nThreads, 4u);
 
-    // Time-bound loop
+    // Time Slice Management
+    // We will run in batches.
+    int batchSize = 25;
+
     while (true) {
         auto now = chrono::high_resolution_clock::now();
-        auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - startTime).count();
+        long elapsed = chrono::duration_cast<chrono::milliseconds>(now - startTime).count();
         if (elapsed >= timeLimitMs) break;
 
-        // Launch a batch of simulations (one for each candidate)
         vector<future<int>> futures;
-        for (int i = 0; i < candidateCount; i++) {
-            futures.push_back(async(launch::async, [i, &candidates, board, bonusBoard, &unseenBag, myRackCounts, &dict]() {
-
-                // Copy Game State
+        // Correct Parallel Implementation:
+        // We will launch tasks that return a partial sum for a specific candidate.
+        // Reverting to the simpler parallel loop structure for safety/correctness.
+        for(int k=0; k<candidateCount; k++) {
+             futures.push_back(async(launch::async,
+                 [k, &candidates, board, bonusBoard, &unseenBag, myRackCounts, &dict]() {
                 LetterBoard simBoard = board;
-                vector<char> simBag = unseenBag; // Copy bag (slow-ish, but necessary)
-                shuffle(simBag.begin(), simBag.end(), rng); // Randomize bag
+                vector<char> simBag = unseenBag;
+                shuffle(simBag.begin(), simBag.end(), rng);
 
-                // Generate Opponent Rack from Bag
                 int oppRackCounts[27] = {0};
                 fillRack(oppRackCounts, simBag);
 
-                // Apply MY candidate move
                 int myRackClone[27];
                 memcpy(myRackClone, myRackCounts, sizeof(myRackClone));
 
-                // Apply MY Move
-                // Note: candidates[i].score is already calculated!
-                int currentScore = candidates[i].score;
-                applyMove(simBoard, candidates[i], myRackClone);
+                int currentScore = candidates[k].score;
+                applyMove(simBoard, candidates[k], myRackClone);
                 fillRack(myRackClone, simBag);
 
-                // Refill my rack
-                fillRack(myRackClone, simBag);
-
-                // Play out the rest of the game
-                // Start with OPPONENT turn (since I just moved)
-                int futureSpread = playout(simBoard, bonusBoard, myRackClone, oppRackCounts, simBag, false, dict);
-
-                return currentScore + futureSpread; // Total Spread
-            }));
+                return currentScore + playout(simBoard, bonusBoard, myRackClone, oppRackCounts, simBag, false, dict);
+             }));
         }
 
-        // Collect results
-        for (int i = 0; i < candidateCount; i++) {
-            int spread = futures[i].get();
-            totalSpread[i] += spread;
-            simCounts[i]++;
-            simulationsRun++;
+        for(int k=0; k<candidateCount; k++) {
+            totalSpread[k] += futures[k].get();
+            simCounts[k]++;
         }
     }
 
-    // 4. Select Best Move based on Avg Spread
     int bestIdx = 0;
-    double maxAvg = -99999.0;
-
-    cout << "\n[Vanguard] Sims: " << simulationsRun << " | Time: " << timeLimitMs << "ms" << endl;
+    double maxScore = -99999.0;
 
     for (int i = 0; i < candidateCount; i++) {
-        double avg = totalSpread[i] / max(1, simCounts[i]);
-        // Weighted Score: 70% Simulation, 30% Static Score (Stabilizer)
-        double weighted = (avg * 0.7) + (candidates[i].score * 0.3);
+        if (simCounts[i] == 0) continue;
+        double avg = totalSpread[i] / simCounts[i];
 
-        if (weighted > maxAvg) {
-            maxAvg = weighted;
+        // 50% Sim, 50% Static
+        double weighted = (avg * 0.5) + (candidates[i].score * 0.5);
+
+        if (weighted > maxScore) {
+            maxScore = weighted;
             bestIdx = i;
-        }
-
-        // Debug output for top moves
-        if (i < 3) {
-            cout << "  Move: " << candidates[i].word << " (" << candidates[i].score << "pts) -> Sim Spread: " << avg << endl;
         }
     }
 
@@ -139,33 +123,48 @@ int Vanguard::playout(LetterBoard board, const Board& bonusBoard, int* myRackCou
     int passes = 0;
     int turns = 0;
 
-    // Sim Depth: 6 turns is usually enough to see board control effects
-    while (passes < 2 && !bag.empty() && turns < 2) {
+    // Sim Depth: 2
+    while (passes < 2 && turns < 2) {
         turns++;
 
         int* currentRack = myTurn ? myRackCounts : oppRackCounts;
         int& currentScore = myTurn ? myScore : oppScore;
 
-        // 1. Generate Moves
+        // Check if rack is empty (Endgame condition)
+        bool rackEmpty = true;
+        for(int i=0; i<27; i++) {
+            if(currentRack[i] > 0) {
+                rackEmpty=false;
+                break;
+            }
+        }
+
+        if (rackEmpty && bag.empty()) break;
+
+        turns++;
+
         TileRack tempRack;
-        for(int i=0; i<26; i++) {
-            for(int k=0; k<currentRack[i]; k++) {
+        for(int i=0; i < 26; i++) {
+            for(int k=0; k < currentRack[i]; k++) {
                 tempRack.push_back({(char)('A'+i)});
             }
         }
+
         for(int k=0; k<currentRack[26]; k++) {
             tempRack.push_back({'?'});
         }
 
-        vector<MoveCandidate> moves = MoveGenerator::generate(board, tempRack, dict);
+        vector<MoveCandidate> moves = MoveGenerator::generate(board, tempRack, dict, false);
 
         if (moves.empty()) {
             passes++;
         } else {
             passes = 0;
 
+            // Greedy Play in Simulation
+            // We scan for the best score.
             MoveCandidate* bestMove = nullptr;
-            int maxScore = -1;
+            int maxScore = -99999;
 
             for (auto& m : moves) {
                 int s = calculateScore(board, bonusBoard, m);
@@ -253,7 +252,6 @@ int Vanguard::calculateScore(const LetterBoard& board, const Board& bonusBoard, 
     if (strlen(move.word) > 1) totalScore += (mainWordScore * mainWordMult);
     if (tilesPlaced == 7) totalScore += 50;
 
-    // --- CRITICAL FIX: ADD LEAVE HEURISTIC ---
     // This allows the engine to value rack health during simulation.
     float leaveVal = 0.0f;
     for (int i=0; move.leave[i] != '\0'; i++) {

@@ -37,18 +37,18 @@ static string centerText(const string& text, int width) {
 }
 
 static void printLegend() {
-    cout << "Legend:\n";
+    cout << "\nLegend:\n";
     cout << "  <2x> = Double Word   <3x> = Triple Word\n";
     cout << "  >2x< = Double Letter >3x< = Triple Letter\n\n";
 }
 
 static void printHorizontalBorder() {
-    cout << "\033[90m" << "    +" << "\033[0m";
+    cout << "    +";
     for (int col = 0; col < BOARD_SIZE; col++) {
         for (int i = 0; i < CELL_INNER_WIDTH; i++) {
-            cout << "\033[90m" << "-" << "\033[0m";
+            cout << "-";
         }
-        cout << "\033[90m" << "+" << "\033[0m";
+        cout << "+";
     }
     cout << "\n";
 }
@@ -58,10 +58,10 @@ static void printColumnHeader() {
     printHorizontalBorder();
 
     // Leading spaces so numbers align with the board below
-    cout << "\033[90m" << "    |" << "\033[0m";
+    cout << "    |";
     for (int col = 0; col < BOARD_SIZE; col++) {
         string numberText = to_string(col + 1);
-        cout << centerText(numberText, CELL_INNER_WIDTH) << "\033[90m" << "|" << "\033[0m";
+        cout << centerText(numberText, CELL_INNER_WIDTH) << "|";
     }
     cout << "\n";
 
@@ -219,12 +219,13 @@ void printBoard(const Board &bonusBoard, const LetterBoard &letters) {
     //printTitle();
     printLegend();
     printColumnHeader();
+    cout << "\033[90m";
 
     for (int row = 0; row < BOARD_SIZE; row++) {
         char rowLabel = static_cast<char>('A' + row);
 
         //Row lebel at the left (eg: "A |")
-        cout << "  " << rowLabel << "\033[90m" << " |" << "\033[0m";
+        cout << "  " << "\033[0m" << rowLabel << "\033[90m" << " |";
 
         //print each cell in this row
         for (int col = 0; col < BOARD_SIZE; col++) {
@@ -234,10 +235,10 @@ void printBoard(const Board &bonusBoard, const LetterBoard &letters) {
             if (letterOnBoard != ' ') {
                 // There is a tile here, show letter instead of bonus
                 //cellText = string(1, letterOnBoard);
-                cout << "\033[38;2;255;165;0m" << centerText(string(1, letterOnBoard), CELL_INNER_WIDTH)  << "\033[90m" << "|"  << "\033[0m";
+                cout << "\033[38;2;255;165;0m" << centerText(string(1, letterOnBoard), CELL_INNER_WIDTH)  << "\033[90m" << "|";
             } else {
                 //cellText = cellLabel(bonusBoard[row][col]);
-                cout << "\033[90m" << centerText(cellLabel(bonusBoard[row][col]), CELL_INNER_WIDTH) << "|" << "\033[0m";
+                cout << centerText(cellLabel(bonusBoard[row][col]), CELL_INNER_WIDTH) << "|";
             }
 
             //cout << "\033[90m" << centerText(cellText, CELL_INNER_WIDTH) << "|" << "\033[0m";
@@ -246,5 +247,7 @@ void printBoard(const Board &bonusBoard, const LetterBoard &letters) {
 
         //print border under the row
         printHorizontalBorder();
+        cout << "\033[0m";
+
     }
 }

@@ -22,7 +22,7 @@ uint32_t MoveGenerator::getRackMask(int* rackCounts) {
     return mask;
 }
 
-vector<MoveCandidate> MoveGenerator::generate(const LetterBoard &board, const TileRack &rack, Dawg &dict) {
+vector<MoveCandidate> MoveGenerator::generate(const LetterBoard &board, const TileRack &rack, Dawg &dict, bool useThreading) {
     vector<MoveCandidate> candidates;
     candidates.reserve(2000);
 
@@ -51,46 +51,59 @@ vector<MoveCandidate> MoveGenerator::generate(const LetterBoard &board, const Ti
         constraintsV[i] = ConstraintGenerator::generateRowConstraint(transposed, i);
     }
 
-    // 3. Multi-Threading Setup
-    unsigned int nThreads = thread::hardware_concurrency();
-    if (nThreads == 0) nThreads = 2; // Safety fallback
+    if (useThreading) {
+        // UI Mode: Use threads
+        unsigned int nThreads = thread::hardware_concurrency();
+        if (nThreads == 0) nThreads = 2;
+        nThreads = min(nThreads, 2u);
 
-    // We create tasks. Each task processes a chunk of rows.
-    vector<future<vector<MoveCandidate>>> futures;
-    int rowsPerThread = 15 / nThreads;
-    if (rowsPerThread == 0) rowsPerThread = 1;
+        vector<future<vector<MoveCandidate>>> futures;
+        int rowsPerThread = 15 / nThreads;
+        if (rowsPerThread == 0) rowsPerThread = 1;
 
-    for (int t = 0; t < nThreads; t++) {
-        int start = t * rowsPerThread;
-        int end = (t == nThreads - 1) ? 15 : start + rowsPerThread;
+        for (unsigned int t = 0; t < nThreads; t++) {
+            int start = t * rowsPerThread;
+            int end = (t == nThreads - 1) ? 15 : start + rowsPerThread;
 
-        futures.push_back(async(launch::async,
-            [start, end, &board, &transposed, &constraintsH, &constraintsV, rackCounts, &dict]() {
-            vector<MoveCandidate> localRes;
-            localRes.reserve(200);
+            futures.push_back(async(launch::async,
+                [start, end, &board, &transposed, &constraintsH, &constraintsV, rackCounts, &dict]() {
+                vector<MoveCandidate> localRes;
+                localRes.reserve(200);
+                int localRack[27];
 
-            // Local Rack copy for this thread
-            int localRack[27];
+                for (int r = start; r < end; r++) {
+                    memcpy(localRack, rackCounts, sizeof(localRack));
+                    genMovesGADDAG(r, board, localRack, constraintsH[r], true, localRes, dict);
+                }
+                for (int r = start; r < end; r++) {
+                    memcpy(localRack, rackCounts, sizeof(localRack));
+                    genMovesGADDAG(r, transposed, localRack, constraintsV[r], false, localRes, dict);
+                }
+                return localRes;
+            }));
+        }
 
-            // Horizontal
-            for (int r = start; r < end; r++) {
-                memcpy(localRack, rackCounts, sizeof(localRack)); // Reset rack
-                genMovesGADDAG(r, board, localRack, constraintsH[r], true, localRes, dict);
-            }
-            // Vertical (Scanning transposed board)
-            for (int r = start; r < end; r++) {
-                memcpy(localRack, rackCounts, sizeof(localRack)); // Reset rack
-                genMovesGADDAG(r, transposed, localRack, constraintsV[r], false, localRes, dict);
-            }
-            return localRes;
-        }));
+        for (auto &f : futures) {
+            vector<MoveCandidate> res = f.get();
+            candidates.insert(candidates.end(), res.begin(), res.end());
+        }
+    } else {
+        // AI Simulation Mode: Single Threaded (Zero Overhead)
+        // This is much faster when running inside another parallel loop
+        int localRack[27];
+
+        // Horizontal
+        for (int r = 0; r < 15; r++) {
+            memcpy(localRack, rackCounts, sizeof(localRack));
+            genMovesGADDAG(r, board, localRack, constraintsH[r], true, candidates, dict);
+        }
+        // Vertical
+        for (int r = 0; r < 15; r++) {
+            memcpy(localRack, rackCounts, sizeof(localRack));
+            genMovesGADDAG(r, transposed, localRack, constraintsV[r], false, candidates, dict);
+        }
     }
 
-    // Collect Results
-    for (auto &f : futures) {
-        vector<MoveCandidate> res = f.get(); // Blocks until thread finishes
-        candidates.insert(candidates.end(), res.begin(), res.end());
-    }
     // DEDUPLICATION
     // GADDAG generates the same word from multiple anchors. We must filter them.
     if (!candidates.empty()) {

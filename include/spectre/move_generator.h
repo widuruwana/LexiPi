@@ -26,7 +26,8 @@ public:
     static vector<MoveCandidate> generate(
         const LetterBoard &board,
         const TileRack &rack,
-        Dawg &dict
+        Dawg &dict,
+        bool useThreading = true
     );
 
 private:

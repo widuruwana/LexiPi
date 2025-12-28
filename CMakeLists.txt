@@ -38,4 +38,6 @@ add_executable(scrabblePi src/board.cpp
         include/spectre/move_generator.h
         src/spectre/move_generator.cpp
         include/spectre/vanguard.h
-        src/spectre/vanguard.cpp)
+        src/spectre/vanguard.cpp
+        include/spectre/spy.h
+        src/spectre/spy.cpp)

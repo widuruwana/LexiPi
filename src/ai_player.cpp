@@ -378,6 +378,26 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     bestMove.word[0] = '\0';
     bestMove.score = -1;
 
+    // SHARED INTELLIGENCE: Track Tiles Correctly
+    // We do this for BOTH bots now, to ensure Heuristics are accurate.
+    TileTracker tracker;
+
+    // 1. Mark Board (checking for blanks correctly)
+    for(int r=0; r<15; r++) {
+        for(int c=0; c<15; c++) {
+            if (letters[r][c] != ' ') {
+                // If it's a blank tile on board, we must mark '?' as seen
+                if (blankBoard[r][c]) tracker.markSeen('?');
+                else tracker.markSeen(letters[r][c]);
+            }
+        }
+    }
+    // 2. Mark My Rack
+    for(const auto& t : myRack) tracker.markSeen(t.letter);
+
+    // 3. Update Heuristics based on what's left
+    Heuristics::updateWeights(tracker);
+
     // ---------------------------------------------------------
     // BRANCH 1: SPEEDI_PI (The Speedster)
     // ---------------------------------------------------------
@@ -386,18 +406,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
         findAllMoves(letters, myRack);
 
         if (!candidates.empty()) {
-
-            TileTracker tracker;
-            // Mark board
-            for(int r=0; r<15; r++) for(int c=0; c<15; c++)
-                if(letters[r][c]!=' ') tracker.markSeen(letters[r][c]);
-
-            // Mark rack
-            for(const auto& t : myRack) tracker.markSeen(t.letter);
-
-            Heuristics::updateWeights(tracker);
-
-            // 2. Static Scoring
+            // Static Scoring
             for (auto &cand : candidates) {
                 int boardPoints = calculateTrueScore(cand, letters, bonusBoard);
 
@@ -409,12 +418,12 @@ Move AIPlayer::getMove(const Board &bonusBoard,
 
                 cand.score = boardPoints + (int)leaveVal;
             }
-            // 3. Sort
+            // Sort
             std::sort(candidates.begin(), candidates.end(),
                 [](const spectre::MoveCandidate &a, const spectre::MoveCandidate &b) {
                     return a.score > b.score;
             });
-            // 4. Pick Top
+            // Pick Top
             bestMove = candidates[0];
         }
     }
@@ -422,9 +431,19 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     // BRANCH 2: CUTIE_PI (The Champion)
     // ---------------------------------------------------------
     else {
-        vector<char> unseenBag;
-        unseenBag.reserve(bag.size());
-        for(const auto& t : bag) unseenBag.push_back(t.letter);
+        // Perfect Information Reconstruction
+        // Instead of passing the "Bag", we pass "Everything We Don't See".
+        // In the endgame (Bag empty), this contains EXACTLY the opponent's rack.
+        vector<char> unseenPool;
+        // TileTracker already computed Total Unseen = Bag + Opponent Rack
+        // We just need to reconstruct the list from the tracker's counts.
+        string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ?";
+        for (char c : alphabet) {
+            int count = tracker.getUnseenCount(c);
+            for (int k=0; k<count; k++) {
+                unseenPool.push_back(c);
+            }
+        }
 
         // Run Vanguard MCTS
         // 50ms for "Fast" Sim in this context (or increase for Tournament Mode)
@@ -432,9 +451,9 @@ Move AIPlayer::getMove(const Board &bonusBoard,
             letters,
             bonusBoard,
             myRack,
-            unseenBag,
+            unseenPool, // Bag + opponents rack
             gDawg,
-            300
+            500
         );
     }
 
