@@ -1,6 +1,7 @@
 #include "../include/ai_player.h"
 #include "../include/heuristics.h" // For scoring
 #include "../include/tile_tracker.h"
+#include "../include/spectre/move_generator.h"
 #include <cstring>
 #include <algorithm>
 #include <iostream>
@@ -8,26 +9,17 @@
 #include <future> // for async
 #include <thread> // for hardware_concurrency
 
+#include "../include/spectre/vanguard.h"
+
 using namespace std;
 using namespace std::chrono;
 
 const int SEPERATOR = 26;
 
-// Helper to calculate the Rack Mask (which letters do we physically have?)
-uint32_t getRackMask(const string &rackStr) {
-    uint32_t mask = 0;
-    bool hasBlank = false;
-    for (char c : rackStr) {
-        if (c == '?') {
-            hasBlank = true;
-        } else if (isalpha(c)) {
-            mask |= (1 << (toupper(c) - 'A'));
-        }
-    }
-    // If we have a blank, we can form any letter
-    if (hasBlank) return 0xFFFFFFFF; // Blank can be anything
+AIPlayer::AIPlayer(AIStyle style) : style(style) {}
 
-    return mask;
+string AIPlayer::getName() const {
+    return (style == AIStyle::SPEEDI_PI) ? "Speedi_Pi" : "Cutie_Pi";
 }
 
 // Optimization: Prune the search space to boundingBox + 1
@@ -37,7 +29,7 @@ struct SearchRange {
 };
 
 // Helper to calculate score for a specific move
-int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
+int calculateTrueScore(const spectre::MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
 
     int totalScore = 0;
     int mainWordScore = 0;
@@ -51,6 +43,8 @@ int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, co
 
     // 1. Scoring the main word
     for (char letter : move.word) {
+        if (letter == '\0') break; // STOP at null terminator (C-String fix)
+
         // Safeguard
         if (r < 0 || r > 14 || c < 0 || c > 14) {
             return -1000;
@@ -141,7 +135,8 @@ int calculateTrueScore(const MoveCandidate &move, const LetterBoard& letters, co
         c += dc;
     }
 
-    if (move.word.length() > 1) {
+    // FIX: use strlen instead of .length() for char array
+    if (std::strlen(move.word) > 1) {
         totalScore += (mainWordScore * mainWordMultiplier);
     }
 
@@ -189,7 +184,7 @@ SearchRange getActiveBoardArea(const LetterBoard &letters) {
     };
 }
 
-AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove) {
+AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &letters, const spectre::MoveCandidate &bestMove) {
 
     DifferentialMove diff;
     diff.row = -1;
@@ -203,6 +198,8 @@ AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &lett
 
     // Scan for full word against the board.
     for (char letter : bestMove.word) {
+        if (letter == '\0') break; // FIX: Stop loop at null terminator
+
         // Is the current square empty?
         if (letters[r][c] == ' ') {
             // Yes, we must place a tile here.
@@ -375,128 +372,102 @@ Move AIPlayer::getMove(const Board &bonusBoard,
                        const Player &opponent,
                        int PlayerNum) {
 
-    // To measure the time spent processing each turn
-    auto startTime = high_resolution_clock::now();
-
     candidates.clear();
-
-    // Extract the rack from player object
     const TileRack &myRack = me.rack;
+    spectre::MoveCandidate bestMove;
+    bestMove.word[0] = '\0';
+    bestMove.score = -1;
 
-    // Debug: Print what is used by Cutie_Pi
-    string rackStr ="";
-    for (const Tile& t: myRack) {
-        rackStr += t.letter;
-    }
+    // ---------------------------------------------------------
+    // BRANCH 1: SPEEDI_PI (The Speedster)
+    // ---------------------------------------------------------
+    if (style == AIStyle::SPEEDI_PI) {
+        // 1. Raw Generation (Fastest)
+        findAllMoves(letters, myRack);
 
-    // Tracking unseen tiles
-    TileTracker tracker;
+        if (!candidates.empty()) {
 
-    // 1. Mark board tiles
-    for (int r = 0; r < 15; r++) {
-        for (int c = 0; c < 15; c++) {
-            if (letters[r][c] != ' '){
-                tracker.markSeen(letters[r][c]);
+            TileTracker tracker;
+            // Mark board
+            for(int r=0; r<15; r++) for(int c=0; c<15; c++)
+                if(letters[r][c]!=' ') tracker.markSeen(letters[r][c]);
+
+            // Mark rack
+            for(const auto& t : myRack) tracker.markSeen(t.letter);
+
+            Heuristics::updateWeights(tracker);
+
+            // 2. Static Scoring
+            for (auto &cand : candidates) {
+                int boardPoints = calculateTrueScore(cand, letters, bonusBoard);
+
+                // Leave Heuristics
+                float leaveVal = 0.0f;
+                for (int i=0; cand.leave[i] != '\0'; i++) {
+                    leaveVal += Heuristics::getLeaveValue(cand.leave[i]);
+                }
+
+                cand.score = boardPoints + (int)leaveVal;
             }
+            // 3. Sort
+            std::sort(candidates.begin(), candidates.end(),
+                [](const spectre::MoveCandidate &a, const spectre::MoveCandidate &b) {
+                    return a.score > b.score;
+            });
+            // 4. Pick Top
+            bestMove = candidates[0];
         }
     }
+    // ---------------------------------------------------------
+    // BRANCH 2: CUTIE_PI (The Champion)
+    // ---------------------------------------------------------
+    else {
+        vector<char> unseenBag;
+        unseenBag.reserve(bag.size());
+        for(const auto& t : bag) unseenBag.push_back(t.letter);
 
-    // 2. Mark the rack
-    tracker.markSeen(rackStr);
-    // 3. Update Heuristics
-    Heuristics::updateWeights(tracker);
-
-    cout << "[AI] Cutie_Pi is thinking... (Rack: " << rackStr << ")" << endl;
-
-    // 1. Find all possible moves using the LETTER BOARD ( ignore bonuses for logic )
-    findAllMoves(letters, myRack);
-
-    // Stop the timer
-    auto stopTime = high_resolution_clock::now();
-    auto duration = duration_cast<microseconds>(stopTime - startTime); // Calculates in microsec
-
-    // 2. Pick the best one
-    if (candidates.empty()) {
-        cout << "[AI] No moves found. Passing." << endl;
-        Move passMove;
-        passMove.type = MoveType::PASS;
-        return passMove;
+        // Run Vanguard MCTS
+        // 50ms for "Fast" Sim in this context (or increase for Tournament Mode)
+        bestMove = spectre::Vanguard::search(
+            letters,
+            bonusBoard,
+            myRack,
+            unseenBag,
+            gDawg,
+            300
+        );
     }
 
-    // True score for each move
-    for (auto &cand : candidates ) {
+    // ---------------------------------------------------------
+    // COMMON EXECUTION
+    // ---------------------------------------------------------
 
-        // 1. Row points (on board)
-        int points = calculateTrueScore(cand, letters, bonusBoard);
-
-        // 2. Leave value
-        float leaveVal = 0.0f;
-        for (char t: cand.leave) {
-            leaveVal += Heuristics::getLeaveValue(t);
-        }
-
-        // 3. Final score
-        cand.score = points + (int)leaveVal;
-    }
-
-    // Sort by score (descending)
-    std::sort(candidates.begin(), candidates.end(),
-              [](const MoveCandidate &a, const MoveCandidate &b) {
-                  return a.score > b.score;
-    });
-
-    // Exchange decision
     bool shouldExchange = false;
-    int bestScore = candidates.empty() ? 0 : candidates[0].score;
-
-    if (candidates.empty() && bag.size() >= 7) {
+    if (bestMove.word[0] == '\0') {
         shouldExchange = true;
-    } else if (bestScore < 14 && isRackBad(myRack) && bag.size() >= 7) {
+    }
+    else if (bestMove.score < 14 && isRackBad(myRack) && bag.size() >= 7) {
         shouldExchange = true;
-        cout << "[AI] Rack is garbage. Attempting exchange." << endl;
     }
 
     if (shouldExchange) {
-        // Double check we actually HAVE tiles to exchange (prevent empty-bag loop)
         if (bag.size() < 7) {
-            cout << "[AI] Wanted to exchange, but bag has < 7 tiles. Must play or pass." << endl;
-            if (candidates.empty()) { Move p; p.type=MoveType::PASS; return p; }
-            // If we have moves, fall through to play the best one instead of passing
-        }
-        else {
+            if (bestMove.word[0] == '\0') {
+                Move p; p.type=MoveType::PASS; return p;
+            }
+        } else {
             Move exMove;
             exMove.type = MoveType::EXCHANGE;
             exMove.exchangeLetters = getTilesToExchange(myRack);
-            exMove.word = ""; // Clear
-
-            cout << "[AI] Exchanging tiles: " << exMove.exchangeLetters << endl;
+            exMove.word = "";
             return exMove;
         }
     }
-    else if (candidates.empty()) {
-        Move p; p.type=MoveType::PASS; return p;
-    }
 
-    const MoveCandidate &bestMove = candidates[0];
-
-    // Generate correct move string
-    // We only send the tiles we are placing, not the full word.
     DifferentialMove engineMove = calculateEngineMove(letters, bestMove);
-
     if (engineMove.row == -1 || engineMove.word.empty()) {
-        cout << "[AI] Error: Move exists, but its already on board and require no Tiles. Passing" << endl;
-        Move passMove;
-        passMove.type = MoveType::PASS;
-        return passMove;
+        Move passMove; passMove.type = MoveType::PASS; return passMove;
     }
-
-    int displayPoints = calculateTrueScore(bestMove, letters, bonusBoard);
-
-    // Print status
-    cout << "[AI] Found " << candidates.size() << " moves in " << duration.count() << " micro seconds." << endl;
-    cout << "[AI] Play: " << bestMove.word
-         << " (Send: " << engineMove.word << " @" << engineMove.row << "," << engineMove.col << ")"
-         << " (Score: " << displayPoints << " + leave)" << endl;
 
     // Construct the Move object
     Move result;
@@ -515,498 +486,7 @@ Move AIPlayer::getEndGameDecision() {
     return m;
 }
 
+// Bridge to the S.P.E.C.T.R.E. Engine
 void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
-
-    // Verticle columns (transposed)
-    // DRY optimization. We rotate the board.
-    LetterBoard transposed;
-    for (int r = 0; r < 15; r++) {
-        for (int c = 0; c < 15; c++) {
-            transposed[c][r] = letters[r][c];
-        }
-    }
-
-    // Pre-calculate Constraints (Fast enough to do sequentially)
-    RowConstraint constraintsH[15];
-    RowConstraint constraintsV[15];
-
-    for(int i=0; i<15; i++) {
-        constraintsH[i] = ConstraintGenerator::generateRowConstraint(letters, i);
-        constraintsV[i] = ConstraintGenerator::generateRowConstraint(transposed, i);
-    }
-
-    // 3. Multi-Threading Setup
-    unsigned int nThreads = thread::hardware_concurrency();
-    if (nThreads == 0) nThreads = 2; // Safety fallback
-
-    // We create tasks. Each task processes a chunk of rows.
-    vector<future<vector<MoveCandidate>>> futures;
-    int rowsPerThread = 15 / nThreads;
-    if (rowsPerThread == 0) rowsPerThread = 1;
-
-    //futures.clear();
-
-    for (int t = 0; t < nThreads; t++) {
-        int start = t * rowsPerThread;
-        int end = (t == nThreads - 1) ? 15 : start + rowsPerThread;
-
-        futures.push_back(async(launch::async, [this, start, end, &letters, &transposed, &constraintsH, &constraintsV, &rack]() {
-            vector<MoveCandidate> localRes;
-            localRes.reserve(500);
-
-            // Horizontal
-            for (int r = start; r < end; r++) {
-                this->genMovesGADDAG(r, letters, rack, constraintsH[r], true, localRes);
-            }
-            // Vertical (Scanning transposed board)
-            for (int r = start; r < end; r++) {
-                this->genMovesGADDAG(r, transposed, rack, constraintsV[r], false, localRes);
-            }
-            return localRes;
-        }));
-    }
-
-    // Collect Results
-    for (auto &f : futures) {
-        vector<MoveCandidate> res = f.get(); // Blocks until thread finishes
-        candidates.insert(candidates.end(), res.begin(), res.end());
-    }
-
-    /*
-    // Calculate the bounding box
-    SearchRange range = getActiveBoardArea(letters);
-
-    // Horizontal Rows
-    for (int r = range.minRow; r <= range.maxRow; r++) {
-        // Generate hybrid constrains (edgeMasks)
-        RowConstraint constraints = ConstraintGenerator::generateRowConstraint(letters, r);
-        genMovesGADDAG(r, letters, rack, constraints, true);
-
-        //solveRow(r, letters, rack, true, range.isEmpty);
-    }
-
-
-    for (int c = range.minCol; c <= range.maxCol; c++) {
-        // Generate hybrid constrains for transposed row (originally a column)
-        RowConstraint constraints = ConstraintGenerator::generateRowConstraint(transposed, c);
-        genMovesGADDAG(c, transposed, rack, constraints, false);
-    }
-    */
+    this->candidates = spectre::MoveGenerator::generate(letters, rack, gDawg);
 }
-
-void AIPlayer::genMovesGADDAG(int row,
-                              const LetterBoard &board,
-                              const TileRack &rack,
-                              const RowConstraint &constraints,
-                              bool isHorizontal,
-                              vector<MoveCandidate> &results) {
-    string rackStr = "";
-    for (const Tile &t : rack) rackStr += t.letter;
-
-    // Calculate Board Mask (Tiles that already exist in this row)
-    uint32_t boardRowMask = 0;
-    for(int c = 0; c < 15; c++) {
-        if(board[row][c] != ' ') {
-            boardRowMask |= (1 << (board[row][c] - 'A'));
-        }
-    }
-
-    // Create the "Universe" Mask (My Rack + The Board Row)
-    // If a letter isn't in this mask, it is IMPOSSIBLE to use it in this move.
-    uint32_t myRackMask = getRackMask(rackStr);
-    uint32_t pruningMask = myRackMask | boardRowMask;
-
-    // Identify Anchors: empty squares adjacent to existing tiles
-    for (int c = 0; c < 15; c++) {
-
-        // Optimization: Only starting generation at an "Anchor"
-        bool isAnchor = false;
-
-        // Not an anchor if its already occupied
-        if (board[row][c] != ' ') continue;
-
-        // Checking neighbors
-        if (c > 0 && board[row][c-1] != ' ') isAnchor = true;
-        if (c < 14 && board[row][c+1] != ' ') isAnchor = true;
-        if (constraints.masks[c] != MASK_ANY) isAnchor = true; // Vertical neighbor exists
-
-        // Empty board ( center star is the only anchor)
-        if (row == 7 && c == 7 && !isAnchor) {
-            // Check if board is truly empty
-            isAnchor = true;
-        }
-
-        if (!isAnchor) continue;
-
-        // Start GADDAG search at this achor (going left)
-        // Passing the rack mask for speed
-        goLeft(row, c, gDawg.rootIndex, constraints, myRackMask, pruningMask,
-            rackStr, "", board, isHorizontal, c, results);
-    }
-}
-
-void AIPlayer::goLeft(int row,
-                      int col,
-                      int node,
-                      const RowConstraint &constraints,
-                      uint32_t rackMask,
-                      uint32_t pruningMask,
-                      string currentRack,
-                      string wordSoFar,
-                      const LetterBoard &board,
-                      bool isHoriz,
-                      int anchorCol,
-                      vector<MoveCandidate> &results) {
-    // Process the current node (Can we stop going left?)
-    // If we have a seperate edge here, it means we can turn around and go right
-    // in GADDAG the seperator is an edge to a new node.
-
-    bool canStopGoingLeft = (col < 0) || (board[row][col] == ' ');
-
-    if (canStopGoingLeft) {
-        int sepIndex = SEPERATOR;
-        if ((gDawg.nodes[node].edgeMask >> sepIndex) & 1) {
-            int separatorNode = gDawg.getChild(node, sepIndex);
-
-            // we have reversed prefix (ex: "VER")
-            string correctedPrefix = wordSoFar;
-
-            // Reversing it to get actual prefix (ex: "REV")
-            reverse(correctedPrefix.begin(), correctedPrefix.end());
-
-            // Send it to goRight
-            goRight(row, anchorCol + 1, separatorNode, constraints, rackMask, pruningMask,
-                currentRack, correctedPrefix, board, isHoriz, anchorCol, results);
-        }
-    }
-
-    // 2. Continue Going Left?
-    if (col < 0) return; // Hit edge
-
-    // Get constraints for this square
-    char boardChar = (col >= 0) ? board[row][col] : ' ';
-    uint32_t boardMask = (col >= 0) ? constraints.masks[col] : 0;
-
-    // Calculate effective mask
-    uint32_t dictMask = gDawg.nodes[node].edgeMask;
-    uint32_t effectiveMask = dictMask;
-
-    if (boardChar != ' ') {
-        // Square is occupied. We MUST match the board letter.
-        int charIdx = boardChar - 'A';
-        if (!((effectiveMask >> charIdx) & 1)) return; // Dict doesn't have this letter
-
-        // Recurse with that letter
-        int nextNode = gDawg.getChild(node, charIdx);
-        goLeft(row, col - 1, nextNode, constraints, rackMask, pruningMask,
-            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol, results);
-    }
-    else {
-        // Square is empty. We place a tile.
-        // Hybrid Check: Dict & Rack & Vertical_Constraints
-        effectiveMask &= (rackMask & boardMask);
-
-        // Iterate set bits (optimization)
-        while (effectiveMask) {
-            int i = __builtin_ctz(effectiveMask); // Get index of first set bit
-            char letter = (char)('A' + i);
-
-            uint32_t mask = (1 << i) - 1;
-            int offset = __builtin_popcount(gDawg.nodes[node].edgeMask & mask);
-            int nextNode = gDawg.childrenPool[gDawg.nodes[node].firstChildIndex + offset];
-
-            if ( (gDawg.nodes[nextNode].subtreeMask &  pruningMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
-                //  Oracle: You have no tiles for anything down this path. Prune it
-                effectiveMask &= ~(1 << i);
-                continue;
-            }
-
-            // Handle Rack (remove tile)
-            size_t found = currentRack.find(letter);
-            bool isBlank = (found == string::npos) && (currentRack.find('?') != string::npos);
-
-            if (found != string::npos) {
-                string nextRack = currentRack;
-                nextRack.erase(found, 1);
-
-                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol, results);
-            }else if (isBlank) {
-                // Blank handling
-                string nextRack = currentRack;
-                size_t b = nextRack.find('?');
-                nextRack.erase(b, 1);
-                char blankChar = tolower(letter); // Mark as blank
-
-                goLeft(row, col - 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + blankChar, board, isHoriz, anchorCol, results);
-            }
-
-            effectiveMask &= ~(1 << i); // Clear bit and continue
-        }
-    }
-}
-
-void AIPlayer::goRight(int row,
-                       int col,
-                       int node,
-                       const RowConstraint &constraints,
-                       uint32_t rackMask,
-                       uint32_t pruningMask,
-                       string currentRack,
-                       string wordSoFar,
-                       const LetterBoard &board,
-                       bool isHoriz,
-                       int anchorCol,
-                       vector<MoveCandidate> &results) {
-    // 1. Check if we formed a valid word
-    if (gDawg.nodes[node].isEndOfWord) {
-        // Valid word!
-        // We need to verify we aren't butting up against another tile
-        // Standard check: is next square empty?
-        bool validEnd = ((col > 14) || (board[row][col] == ' '));
-
-        if (validEnd) {
-            // Reconstruct the full word
-            string finalWord = wordSoFar;
-
-            // Calculate start row/col based on length
-            int len = finalWord.length();
-            int startC = col - len;
-
-            int rFinal = isHoriz ? row : startC;
-            int cFinal = isHoriz ? startC : row;
-
-            results.push_back({
-                rFinal,
-                cFinal,
-                finalWord,
-                0,
-                isHoriz,
-                currentRack
-            });
-        }
-    }
-
-    if (col > 14) return;
-
-    // 2. Continue Going Right
-    char boardChar = board[row][col];
-    uint32_t boardMask = constraints.masks[col];
-    uint32_t dictMask = gDawg.nodes[node].edgeMask;
-    uint32_t effectiveMask = dictMask;
-
-    if (boardChar != ' ') {
-        // Occupied
-        int charIdx = boardChar - 'A';
-        if (!((effectiveMask >> charIdx) & 1)) return;
-
-        int nextNode = gDawg.getChild(node, charIdx);;
-
-        goRight(row, col + 1, nextNode, constraints, rackMask,  pruningMask,
-            currentRack, wordSoFar + boardChar, board, isHoriz, anchorCol, results);
-    } else {
-        // Empty
-        effectiveMask &= (rackMask & boardMask);
-
-        while (effectiveMask) {
-            int i = __builtin_ctz(effectiveMask);
-            char letter = (char)('A' + i);
-
-            uint32_t mask = (1 << i) - 1;
-            int offset = __builtin_popcount(gDawg.nodes[node].edgeMask & mask);
-            int nextNode = gDawg.childrenPool[gDawg.nodes[node].firstChildIndex + offset];
-
-            if ( (gDawg.nodes[nextNode].subtreeMask &  pruningMask) == 0 && !gDawg.nodes[nextNode].isEndOfWord) {
-                //  Oracle: You have no tiles for anything down this path. Prune it
-                effectiveMask &= ~(1 << i);
-                continue;
-            }
-
-            size_t found = currentRack.find(letter);
-            bool isBlank = (found == string::npos) && (currentRack.find('?') != string::npos);
-
-            if (found != string::npos) {
-                string nextRack = currentRack;
-                nextRack.erase(found, 1);
-                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + letter, board, isHoriz, anchorCol, results);
-
-            } else if (isBlank) {
-                string nextRack = currentRack;
-                size_t b = nextRack.find('?');
-                nextRack.erase(b, 1);
-                goRight(row, col + 1, nextNode, constraints, getRackMask(nextRack), pruningMask,
-                    nextRack, wordSoFar + (char)tolower(letter), board, isHoriz, anchorCol, results);
-            }
-            effectiveMask &= ~(1 << i);
-        }
-    }
-}
-
-/*
-void AIPlayer::solveRow(int rowIdx, const LetterBoard &letters,
-                        const TileRack &rack, bool isHorizontal, bool isEmptyBoard) {
-
-    // STORE STATE for the recursion
-    this->currentRow = rowIdx;
-    this->currentIsHorizontal = isHorizontal;
-
-    // 1. Generate the constraint mask for this row
-    RowConstraint constraints = ConstraintGenerator::generateRowConstraint(letters, rowIdx);
-
-    // 2. Prepare rack string ( simple char string for the recursion )
-    string rackStr = "";
-    for (const Tile &t: rack) {
-        rackStr += t.letter;
-    }
-
-    // Pre-calculate the rack mask
-    uint32_t rackMask = getRackMask(rackStr);
-
-    // 3. Scan the row for start points (0..14)
-    for (int startCol = 0; startCol < 15; startCol++) {
-        // Optimization: Dont start strictly inside an existing word (unless extending)
-        if (startCol > 0 && letters[rowIdx][startCol - 1] != ' ') {
-            continue;
-        }
-
-        recursiveSearch(gDawg.rootIndex, startCol, constraints, rackMask,
-           "", rackStr, false, letters, isEmptyBoard, false);
-    }
-}
-
-void AIPlayer::recursiveSearch(int nodeIdx,
-                               int col,
-                               const RowConstraint &constraints,
-                               uint32_t rackMask,
-                               string currentWord,
-                               string currentRack,
-                               bool anchorFilled,
-                               const LetterBoard &letters,
-                               bool isEmptyBoard,
-                               bool tilesPlaced) {
-    // Standard word ( length > 1): Must be in the dictionary
-    bool isStandardWord = (currentWord.length() > 1 && gDawg.nodes[nodeIdx].isEndOfWord);
-    // Parallel Play/ Single tile move ( length == 1 ): Must have vertical neighbours
-    bool isParallelPlay = (currentWord.length() == 1 && constraints.masks[col-1] != MASK_ANY);
-
-    // Can stop if we formed a valid word AND (we are at the edge OR next square is empty)
-    bool atEdge = (col >= 15);
-    bool nextSquareEmpty = atEdge || (letters[this->currentRow][col] == ' ');
-
-    if (nextSquareEmpty && (isStandardWord || isParallelPlay) && anchorFilled && tilesPlaced) {
-        int startCol = col - currentWord.length();
-        // Coordinate fix
-        int finalRow = this->currentIsHorizontal ? this->currentRow : startCol;
-        int finalCol = this->currentIsHorizontal ? startCol : this->currentRow;
-
-        // Bounds check for safety
-        if (finalRow >= 0 && finalRow < 15 && finalCol >= 0 && finalCol < 15) {
-            candidates.push_back({
-                finalRow,
-                finalCol,
-                currentWord,
-                0,
-                this->currentIsHorizontal,
-                currentRack
-            });
-        }
-    }
-
-    // 2. Base case: Reached the edge, so we gotta stop
-    if (col >= 15) return;
-
-    // --- TRIPLE CONSTRAINT INTERSECTION ---
-    // 1. Dictionary: "Words exist with these letters"
-    // 2. Board: "Only these letters fit here"
-    // 3. Rack: "I only have these letters" (Only effective if no blank)
-    uint32_t dictMask = gDawg.nodes[nodeIdx].edgeMask;
-    uint32_t boardMask = constraints.masks[col];
-
-    // THE OPTIMIZATION:
-    // If the board square is empty, we MUST use a rack tile.
-    // So we can intersect with rackMask.
-    // If the board square is FULL, we ignore rackMask (we use the board tile).
-
-    uint32_t effectiveMask = boardMask & dictMask;
-    if (letters[this->currentRow][col] == ' ') {
-        effectiveMask &= rackMask;
-    }
-
-    if (effectiveMask == 0) {
-        return; // PRUNE
-    }
-
-    // Iterate bits
-    for (int i = 0; i < 26; i++) {
-        if (!((effectiveMask >> i) & 1)) {
-            continue;
-        }
-
-        // Recovering the letter
-        char letter = (char)('A' + i);
-        int childNode = gDawg.nodes[nodeIdx].children[i];
-
-        // Is this tile already on board
-        if (letters[this->currentRow][col] == letter) {
-            // Yes: must use it. Anchor satisfied
-            recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + letter, currentRack,
-                            true, letters, isEmptyBoard, tilesPlaced);
-        }
-        else if (letters[this->currentRow][col] == ' ') {
-            // No: Its empty. Play from the rack
-            // tilesPlaced become TRUE
-            // If board is empty, it satisfies anchor filled ONLY if it touches the center square (7, 7)
-            bool isCenter = (isEmptyBoard && this->currentRow == 7 && col ==7);
-
-            // Standard anchor logic (crossing an existing word)
-            bool isCross = (constraints.masks[col] != MASK_ANY);
-
-            bool newAnchor = anchorFilled || isCross || isCenter;
-
-            size_t found = currentRack.find(letter);
-            bool isBlank = (found == string::npos) && (currentRack.find('?') != string::npos);
-
-            if (found != string::npos) {
-                //Normal tile
-                string nextRack = currentRack;
-                nextRack.erase(found, 1);
-
-                recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + letter,
-                                nextRack, newAnchor, letters, isEmptyBoard, true);
-            } else if (isBlank) {
-                //Blank tile
-                string nextRack = currentRack;
-                size_t b = nextRack.find('?');
-                nextRack.erase(b, 1);
-
-                // Fix: Appending lowercase letter to indicate blank usage
-                char blankRep = tolower(letter);
-
-                recursiveSearch(childNode, col + 1, constraints, rackMask, currentWord + blankRep,
-                                nextRack, newAnchor, letters, isEmptyBoard, true);
-            }
-        }
-    }
-}
-*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

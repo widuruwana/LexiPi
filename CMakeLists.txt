@@ -34,4 +34,8 @@ add_executable(scrabblePi src/board.cpp
         src/modes/PvE/pve.cpp
         src/modes/AiAi/aiai.cpp
         include/modes/AiAi/aiai.h
-        include/tile_tracker.h)
+        include/tile_tracker.h
+        include/spectre/move_generator.h
+        src/spectre/move_generator.cpp
+        include/spectre/vanguard.h
+        src/spectre/vanguard.cpp)

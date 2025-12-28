@@ -31,6 +31,18 @@ void runPvE() {
     TileBag bag = createStandardTileBag();
     shuffleTileBag(bag);
 
+    // 2. Select Opponent
+    int botChoice;
+    cout << "\n=========================================\n";
+    cout << "           SELECT OPPONENT\n";
+    cout << "=========================================\n";
+    cout << "1. Speedi_Pi (Fast, Static Heuristics)\n";
+    cout << "2. Cutie_Pi  (Championship, S.P.E.C.T.R.E. Engine)\n";
+    cout << "Choice: ";
+    cin >> botChoice;
+
+    AIStyle selectedStyle = (botChoice == 1) ? AIStyle::SPEEDI_PI : AIStyle::CUTIE_PI;
+
     // 3. Setup Players
     Player players[2];
     PlayerController* controllers[2];
@@ -45,10 +57,11 @@ void runPvE() {
     drawTiles(bag, players[1].rack, 7);
     players[1].score = 0;
     players[1].passCount = 0;
-    controllers[1] = new AIPlayer();
+    controllers[1] = new AIPlayer(selectedStyle);
+
+    string botName = ((AIPlayer*)controllers[1])->getName();
 
     int currentPlayer = 0; // 0 -> Human, 1 -> AI
-
     GameSnapshot lastSnapShot;
     LastMoveInfo lastMove;
     lastMove.exists = false;
@@ -63,11 +76,11 @@ void runPvE() {
     }
 
     printTitle();
-    cout << "Starting Match: Player vs CUTIE_PI (AI)\n";
+    cout << "\nStarting Match: You vs " << botName << "\n\n";
     cout << "Good luck, hooman.\n\n";
 
     printBoard(bonusBoard, letters);
-    cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << "\n";
+    cout << "Scores: You = " << players[0].score << " | " << botName << " ="<< players[1].score << "\n";
 
     // Only show rack in human's turn
     if (currentPlayer == 0) {
@@ -141,7 +154,7 @@ void runPvE() {
                 players[currentPlayer].passCount++;
 
                 printBoard(bonusBoard, letters);
-                cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
+                cout << "Scores: You = " << players[0].score << " | " << botName << " ="<< players[1].score << endl;
 
                 currentPlayer = 1 - currentPlayer;
                 if (currentPlayer == 0) {
@@ -198,7 +211,7 @@ void runPvE() {
 
                 if (!turnSwitched) {
                     printBoard(bonusBoard, letters);
-                    cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
+                    cout << "Scores: You = " << players[0].score << " | " << botName << " ="<< players[1].score << endl;
                     currentPlayer = 1 - currentPlayer;
                 }
 

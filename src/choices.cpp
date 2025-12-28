@@ -49,14 +49,14 @@ bool executePlayMove(Board &bonusBoard,
     );
 
     if (result.success) {
-        cout << "Move played. Score: " << result.score << endl;
+        //cout << "Move played. Score: " << result.score << endl;
         currentPlayer.score += result.score;
 
         players[0].passCount = 0;
         players[1].passCount = 0;
         return true;
     } else {
-        cout << "Unexpected error applying move: " << result.errorMessage << endl;
+        //cout << "Unexpected error applying move: " << result.errorMessage << endl;
         return false;
     }
 }

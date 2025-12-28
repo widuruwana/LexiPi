@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <bit> // C++20 standard for popcount
 
 // 26 Letters + 1 Seperator ('^')
 #define LETTER_COUNT 27
@@ -38,11 +39,25 @@ public:
     // Checks if a standard word exists (mostly for debugging/constraints)
     bool isValidWord(const string &word) const;
 
-    inline bool canPrune(int nodeIdx, uint32_t rackMask) const;
+    inline int getChild(int nodeIdx, int letterIdx) const {
+        // Check if bit is set (Does the child exist?)
+        if (!((nodes[nodeIdx].edgeMask >> letterIdx) & 1)) return -1;
 
-    // Fast Lookup: Replaced "nodes[i].children[c]"
-    // Uses hardware bit-counting for O(1) access
-    inline int getChild(int nodeIdx, int letterIdx) const;
+        // Counts bits set Before this letter to find the offset
+        // (Hardware instruction: popcount)
+        uint32_t mask = (1 << letterIdx) - 1;
+        int offset = __builtin_popcount(nodes[nodeIdx].edgeMask & mask);
+
+        return childrenPool[nodes[nodeIdx].firstChildIndex + offset];
+    }
+
+    inline bool canPrune(int nodeIdx, uint32_t rackMask) const {
+        // if the branch requires letter I which is not in the rack, PRUNE
+        if (nodes[nodeIdx].subtreeMask == 0) return false; // End of path
+
+        // 0 overlap means have none of the letters required for this path. send true.
+        return (nodes[nodeIdx].subtreeMask & rackMask) == 0;
+    }
 
 private:
     //Insert a word into the graph in GADDAG format (rotations with separator)

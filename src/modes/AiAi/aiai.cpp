@@ -26,19 +26,29 @@ struct MatchResult {
 void runAiAi() {
     int numGames;
     bool verbose;
+    int matchType;
 
     cout << "\n=========================================\n";
-    cout << "      CUTIE_PI vs EVIL CUTIE_PI\n";
+    cout << "           AI vs AI SIMULATION\n";
     cout << "=========================================\n";
+    cout << "Select Matchup:\n";
+    cout << "1. Speedi_Pi vs Speedi_Pi (Pure Speed Test)\n";
+    cout << "2. Cutie_Pi  vs Speedi_Pi (Smart vs Fast)\n";
+    cout << "3. Cutie_Pi  vs Cutie_Pi  (Clash of Titans)\n";
+    cout << "Choice: ";
+    cin >> matchType;
+
+    AIStyle styleP1, styleP2;
+    if (matchType == 1) { styleP1 = AIStyle::SPEEDI_PI; styleP2 = AIStyle::SPEEDI_PI; }
+    else if (matchType == 2) { styleP1 = AIStyle::CUTIE_PI; styleP2 = AIStyle::SPEEDI_PI; }
+    else { styleP1 = AIStyle::CUTIE_PI; styleP2 = AIStyle::CUTIE_PI; }
+
     cout << "Enter number of games to simulate: ";
     cin >> numGames;
     cout << "Watch the games? (1 = Yes, 0 = No/Fast): ";
     cin >> verbose;
 
-    if (!loadDictionary("csw24.txt")) {
-        cout << "Error: Dictionary not found.\n";
-        return;
-    }
+    if (!loadDictionary("csw24.txt")) { cout << "Error: Dictionary not found.\n"; return; }
 
     vector<MatchResult> results;
     auto startTotal = chrono::high_resolution_clock::now();
@@ -70,13 +80,18 @@ void runAiAi() {
         drawTiles(bag, players[0].rack, 7);
         players[0].score = 0;
         players[0].passCount = 0;
-        controllers[0] = new AIPlayer();
+        controllers[0] = new AIPlayer(styleP1);
 
         // Player 2 - Evil Cutie_Pi
         drawTiles(bag, players[1].rack, 7);
         players[1].score = 0;
         players[1].passCount = 0;
-        controllers[1] = new AIPlayer();
+        controllers[1] = new AIPlayer(styleP2);
+
+        string nameP1 = ((AIPlayer*)controllers[0])->getName();
+        string nameP2 = ((AIPlayer*)controllers[1])->getName();
+        if (matchType == 1) nameP2 = "Evil " + nameP2; // Evil Speedi_Pi
+        if (matchType == 3) nameP2 = "Evil " + nameP2; // Evil Cutie_Pi
 
         int currentPlayer = 0;
 
@@ -87,9 +102,9 @@ void runAiAi() {
 
         bool canChallenge = false; // AI assumes valid dictionary
         bool dictActive = true;
+        bool gameOver = false;
 
         // Game loop
-        bool gameOver = false;
         while (!gameOver) {
 
             if (handleSixPassEndGame(players)) {
@@ -112,9 +127,7 @@ void runAiAi() {
                 break;
                                        }
 
-            if (verbose) {
-                cout << "\n" << (currentPlayer == 0 ? "Cutie_Pi" : "Evil_Pi") << "is thinking...";
-            }
+            if (verbose) cout << "\n" << (currentPlayer==0 ? nameP1 : nameP2) << " is thinking...";
 
             Move move = controllers[currentPlayer]->getMove(bonusBoard,
                                                             letters,
@@ -127,8 +140,6 @@ void runAiAi() {
             // move execution
             if (move.type == MoveType::PASS) {
                 passTurn(players, currentPlayer, canChallenge, lastMove);
-                //printBoard(bonusBoard, letters);
-                //cout << "Scores: You = " << players[0].score << " | Cutie_Pi = " << players[1].score << endl;
                 continue;
             }
 
@@ -139,19 +150,21 @@ void runAiAi() {
             }
 
             if (move.type == MoveType::EXCHANGE) {
-                bool success = executeExchangeMove(bag, players[currentPlayer], move);
-                if (success) {
+                if (executeExchangeMove(bag, players[currentPlayer], move)) {
                     lastMove.exists = false;
                     canChallenge = false;
-
                     players[currentPlayer].passCount++;
 
-                    //printBoard(bonusBoard, letters);
-                    cout << "Scores: Cutie_Pi = " << players[0].score << " | Evil_Pi = " << players[1].score << endl;
-                    cout << (currentPlayer == 0 ? "Cutie_Pi" : "Evil_Pi") << " Exchanged tiles." << endl;
+                    if (verbose) {
+                        cout << "Scores: " << nameP1 << " = " << players[0].score
+                             << " | " << nameP2 << " = " << players[1].score << endl;
+
+                        cout << (currentPlayer == 0 ? nameP1 : nameP2) << " Exchanged tiles." << endl;
+                    }
 
                     currentPlayer = 1 - currentPlayer;
-                    if (currentPlayer == 0) {
+
+                    if (currentPlayer == 0 && verbose) {
                         cout << "\nYour Turn:" << endl;
                         //printRack(players[currentPlayer].rack);
                     }
@@ -165,7 +178,6 @@ void runAiAi() {
             if (move.type == MoveType::PLAY) {
                 bool success = executePlayMove(bonusBoard, letters, blanks, bag, players,
                                                players[currentPlayer], move, lastSnapShot);
-
                 if (success) {
                     lastMove.exists = true;
                     lastMove.playerIndex = currentPlayer;
@@ -176,7 +188,7 @@ void runAiAi() {
 
                     if (verbose) {
                         printBoard(bonusBoard, letters);
-                        cout << "Scores: Cutie_Pi = " << players[0].score << " | Evil_Pi = " << players[1].score << endl;
+                        cout << "Scores: " << nameP1 << " = " << players[0].score << " | " << nameP2 << " = " << players[1].score << endl;
                     }
 
                     currentPlayer = 1 - currentPlayer;
@@ -219,19 +231,25 @@ void runAiAi() {
         }
     }
 
+    // Determine Names for Final Output
+    string nameP1, nameP2;
+    if (matchType == 1) { nameP1 = "Speedi_Pi"; nameP2 = "Evil Speedi_Pi"; }
+    else if (matchType == 2) { nameP1 = "Cutie_Pi"; nameP2 = "Speedi_Pi"; }
+    else { nameP1 = "Cutie_Pi"; nameP2 = "Evil Cutie_Pi"; }
+
     cout << "\n\n=========================================\n";
     cout << "           SIMULATION RESULTS            \n";
     cout << "=========================================\n";
-
+    cout << "Matchup: " << nameP1 << " vs " << nameP2 << endl;
     cout << "Games played: " << numGames << endl;
-    cout << "Time Elpased: " << (elapsedMs / 1000.0) << " seconds\n" << endl;
+    cout << "Time Elapsed: " << (elapsedMs / 1000.0) << " seconds\n" << endl;
 
-    cout << "Cutie_Pi (P1) Wins: " << winsP1 << " (" << (winsP1 * 100.0 / numGames) << "%)\n";
-    cout << "Evil_Pi  (P2) Wins: " << winsP2 << " (" << (winsP2 * 100.0 / numGames) << "%)\n";
+    cout << nameP1 << " Wins: " << winsP1 << " (" << (winsP1 * 100.0 / numGames) << "%)\n";
+    cout << nameP2 << " Wins: " << winsP2 << " (" << (winsP2 * 100.0 / numGames) << "%)\n";
     cout << "Draws: " << draws << "\n\n";
 
-    cout << "Avg Score (P1): " << (totalP1 / (double)numGames) << "\n";
-    cout << "Avg Score (P2): " << (totalP2 / (double)numGames) << "\n";
+    cout << "Avg Score (" << nameP1 << "): " << (totalP1 / (double)numGames) << "\n";
+    cout << "Avg Score (" << nameP2 << "): " << (totalP2 / (double)numGames) << "\n";
     cout << "Combined Avg: " << ((totalP1 + totalP2) / (double)numGames / 2.0) << "\n";
     cout << "=========================================\n";
 

@@ -38,38 +38,7 @@ int getIndex(char c) {
     return -1;
 }
 
-int Dawg::getChild(int nodeIdx, int letterIdx) const {
-    const DawgNode &node = nodes[nodeIdx];
-
-    // Check if bit is set (Does the child exist?)
-    if (!((node.edgeMask >> letterIdx) & 1)) return -1;
-
-    // Counts bits set Before this letter to find the offset
-    // (Hardware instruction: popcount)
-    uint32_t mask = (1 << letterIdx) - 1;
-    int offset = __builtin_popcount(node.edgeMask & mask);
-
-    return childrenPool[node.firstChildIndex + offset];
-}
-
-inline bool Dawg::canPrune(int nodeIdx, uint32_t rackMask) const {
-    // if the branch requires letter I which is not in the rack, PRUNE
-    if (nodes[nodeIdx].subtreeMask == 0) return false; // End of path
-
-    // 0 overlap means have non of the letters required for this path. send true.
-    return (nodes[nodeIdx].subtreeMask & rackMask) == 0;
-}
-
-
 void Dawg::insertGADDAG(const string &word) {
-    // Inserting a word in standard GADDAG format
-    // For word "CARE"
-    // C ^ A R E
-    // A C ^ R E
-    // R A C ^ E
-    // E R A C ^
-
-    // Usually skip 1-letter words for GADDAG generation
 
     for (int i = 0; i < word.length(); i++) {
         string prefix = word.substr(0, i+1);
