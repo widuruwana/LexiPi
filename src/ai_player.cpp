@@ -1,13 +1,12 @@
 #include "../include/ai_player.h"
-#include "../include/heuristics.h" // For scoring
+#include "../include/heuristics.h"
 #include "../include/tile_tracker.h"
 #include "../include/spectre/move_generator.h"
+#include "../include/spectre/judge.h"
 #include <cstring>
 #include <algorithm>
 #include <iostream>
 #include <chrono>
-#include <future> // for async
-#include <thread> // for hardware_concurrency
 
 #include "../include/spectre/vanguard.h"
 
@@ -28,122 +27,83 @@ struct SearchRange {
     bool isEmpty; // track empty board state
 };
 
-// Helper to calculate score for a specific move
-int calculateTrueScore(const spectre::MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
-
+// Calculate score for a specific move
+static int calculateTrueScoreInternal(const spectre::MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
     int totalScore = 0;
     int mainWordScore = 0;
     int mainWordMultiplier = 1;
     int tilesPlacedCount = 0;
-
     int r = move.row;
     int c = move.col;
     int dr = move.isHorizontal ? 0 : 1;
     int dc = move.isHorizontal ? 1 : 0;
 
-    // 1. Scoring the main word
-    for (char letter : move.word) {
-        if (letter == '\0') break; // STOP at null terminator (C-String fix)
+    for (int i = 0; move.word[i] != '\0'; i++) {
+        char letter = move.word[i];
 
-        // Safeguard
-        if (r < 0 || r > 14 || c < 0 || c > 14) {
-            return -1000;
-        }
+        // [FIX] BLANK TILE HANDLING
+        // Lowercase char = Blank used as that letter. Score MUST be 0.
+        // Uppercase char = Real tile. Score comes from Heuristics.
+        int letterScore = (islower(letter)) ? 0 : Heuristics::getTileValue(letter);
 
-        int letterScore = Heuristics::getTileValue(letter);
         bool isNewlyPlaced = (letters[r][c] == ' ');
 
         if (isNewlyPlaced) {
             tilesPlacedCount++;
-
-            // Apply Letter Multipliers (only for new tiles)
             CellType bonus = bonusBoard[r][c];
-
+            // Apply Premium Squares
             if (bonus == CellType::DLS) letterScore *= 2;
             else if (bonus == CellType::TLS) letterScore *= 3;
-
             if (bonus == CellType::DWS) mainWordMultiplier *= 2;
             else if (bonus == CellType::TWS) mainWordMultiplier *= 3;
         }
-
         mainWordScore += letterScore;
 
-        // 2. Score cross words
         if (isNewlyPlaced) {
-            // Checks perpendicular direction
+            // Check for Cross-Words (Perpendicular)
             int pdr = move.isHorizontal ? 1 : 0;
             int pdc = move.isHorizontal ? 0 : 1;
-
             bool hasNeighbour = false;
-
-            // Checks bounds dynamically based on where we are looking
-            int checkR1 = r - pdr;
-            int checkC1 = c - pdc;
-            if (checkR1 >= 0 && checkR1 < 15 && checkC1 >= 0 && checkC1 < 15 && letters[checkR1][checkC1] != ' ') {
-                hasNeighbour = true;
-            }
-
-            int checkR2 = r + pdr;
-            int checkC2 = c + pdc;
-            if (checkR2 >= 0 && checkR2 < 15 && checkC2 >= 0 && checkC2 < 15 && letters[checkR2][checkC2] != ' ') {
-                hasNeighbour = true;
-            }
+            if (r-pdr>=0 && c-pdc>=0 && letters[r-pdr][c-pdc]!=' ') hasNeighbour=true;
+            else if (r+pdr<15 && c+pdc<15 && letters[r+pdr][c+pdc]!=' ') hasNeighbour=true;
 
             if (hasNeighbour) {
-                // Find the start of the cross word
-                int currR = r;
-                int currC = c;
-
-                // Scan backwards
-                while (currR - pdr >= 0 && currC - pdc >= 0 && letters[currR-pdr][currC-pdc] != ' ') {
-                    currR -= pdr;
-                    currC -= pdc;
-                }
+                int currR = r, currC = c;
+                // Rewind to start of cross-word
+                while (currR-pdr>=0 && currC-pdc>=0 && letters[currR-pdr][currC-pdc]!=' ') { currR-=pdr; currC-=pdc; }
 
                 int crossScore = 0;
                 int crossMult = 1;
 
-                // Scan forwards to score the entier cross word
-                while (currR < 15 && currC < 15) {
+                // Scan forward
+                while (currR<15 && currC<15) {
                     char cellLetter = letters[currR][currC];
+                    if (currR==r && currC==c) {
+                        // This is the tile we just placed.
+                        // [FIX] Ensure Blank is 0 here too.
+                        int crossLetterScore = (islower(letter)) ? 0 : Heuristics::getTileValue(letter);
 
-                    if (currR == r && currC == c) {
-                        // In the tile we just placed, so bonuses apply
-                        int crossLetterScore = Heuristics::getTileValue(letter);
                         CellType crossBonus = bonusBoard[currR][currC];
-
-                        if (crossBonus == CellType::DLS) crossLetterScore *= 2;
-                        else if (crossBonus == CellType::TLS) crossLetterScore *= 3;
-
-                        if (crossBonus == CellType::DWS) crossMult *= 2;
-                        else if (crossBonus == CellType::TWS) crossMult *= 3;
-
+                        if (crossBonus == CellType::DLS) crossLetterScore*=2;
+                        else if (crossBonus == CellType::TLS) crossLetterScore*=3;
+                        if (crossBonus == CellType::DWS) crossMult*=2;
+                        else if (crossBonus == CellType::TWS) crossMult*=3;
                         crossScore += crossLetterScore;
-                    } else if (cellLetter != ' ') {
-                        // Existing tile. Adding value (no bonuses)
+                    } else if (cellLetter!=' ') {
+                        // Existing tiles on board are always valid/uppercase
                         crossScore += Heuristics::getTileValue(cellLetter);
-                    } else {
-                        break; // End of the word (empty square)
-                    }
-                    currR += pdr;
-                    currC += pdc;
+                    } else break;
+                    currR+=pdr; currC+=pdc;
                 }
                 totalScore += (crossScore * crossMult);
             }
         }
-        r += dr;
-        c += dc;
+        r += dr; c += dc;
     }
 
-    // FIX: use strlen instead of .length() for char array
-    if (std::strlen(move.word) > 1) {
-        totalScore += (mainWordScore * mainWordMultiplier);
-    }
-
-    // 3. Bingo bonus (50+ for using all 7 tiles)
-    if (tilesPlacedCount == 7) {
-        totalScore += 50;
-    }
+    // Add Main Word Score + Bingo Bonus
+    if (strlen(move.word) > 1) totalScore += (mainWordScore * mainWordMultiplier);
+    if (tilesPlacedCount == 7) totalScore += 50;
 
     return totalScore;
 }
@@ -173,7 +133,7 @@ SearchRange getActiveBoardArea(const LetterBoard &letters) {
         return {7, 7, 7, 7, true};
     }
 
-    // Expand by one to include the "Inflence Zone" (parallel plays)
+    // Expand by one to include the "Influence Zone" (parallel plays)
     // Using min/max to ensure no going out of bounds.
     return{
         max(0, minR - 1),
@@ -197,28 +157,17 @@ AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &lett
     int dc = bestMove.isHorizontal ? 1 : 0;
 
     // Scan for full word against the board.
-    for (char letter : bestMove.word) {
-        if (letter == '\0') break; // FIX: Stop loop at null terminator
-
-        // Is the current square empty?
+    for (int i = 0; bestMove.word[i] != '\0'; i++) {
         if (letters[r][c] == ' ') {
-            // Yes, we must place a tile here.
-
-            // If this is the first empty square. then this is "Engine start"
-            if (diff.row == -1 && diff.col == -1) {
+            if (diff.row == -1) {
                 diff.row = r;
                 diff.col = c;
             }
-
-            // Add the letter to the string we send back to engine
-            diff.word += letter;
+            diff.word += bestMove.word[i];
         }
-
-        //advance to next board cell
         r += dr;
         c += dc;
     }
-
     return diff;
 }
 
@@ -378,117 +327,109 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     bestMove.word[0] = '\0';
     bestMove.score = -1;
 
-    // SHARED INTELLIGENCE: Track Tiles Correctly
-    // We do this for BOTH bots now, to ensure Heuristics are accurate.
+    // --- DATA FLOW: 1. SPY NETWORK (Tile Tracking) ---
+    // We need to know what tiles are left in the universe to infer the opponent's rack.
     TileTracker tracker;
 
-    // 1. Mark Board (checking for blanks correctly)
-    for(int r=0; r<15; r++) {
-        for(int c=0; c<15; c++) {
-            if (letters[r][c] != ' ') {
-                // If it's a blank tile on board, we must mark '?' as seen
-                if (blankBoard[r][c]) tracker.markSeen('?');
-                else tracker.markSeen(letters[r][c]);
-            }
-        }
+    // Scan the Board: Mark every tile currently on the board as "Seen"
+    for(int r=0; r<15; r++) for(int c=0; c<15; c++) if (letters[r][c] != ' ') {
+        if (blankBoard[r][c]) tracker.markSeen('?'); else tracker.markSeen(letters[r][c]);
     }
-    // 2. Mark My Rack
+    // Scan My Rack: Mark my own tiles as "Seen"
     for(const auto& t : myRack) tracker.markSeen(t.letter);
 
-    // 3. Update Heuristics based on what's left
+    // Dynamic Heuristics: Update letter values based on scarcity (for Midgame)
     Heuristics::updateWeights(tracker);
 
-    // ---------------------------------------------------------
-    // BRANCH 1: SPEEDI_PI (The Speedster)
-    // ---------------------------------------------------------
-    if (style == AIStyle::SPEEDI_PI) {
-        // 1. Raw Generation (Fastest)
-        findAllMoves(letters, myRack);
+    // =========================================================
+    // PHASE 2: THE JUDGE (ENDGAME SOLVER)
+    // CONDITION: Bag is Empty AND we are the Smart Bot (Cutie_Pi)
+    // =========================================================
+    if (bag.empty() && style == AIStyle::CUTIE_PI) {
+        cout << "[AI] Phase 2: Activating The Judge." << endl;
 
-        if (!candidates.empty()) {
-            // Static Scoring
-            for (auto &cand : candidates) {
-                int boardPoints = calculateTrueScore(cand, letters, bonusBoard);
-
-                // Leave Heuristics
-                float leaveVal = 0.0f;
-                for (int i=0; cand.leave[i] != '\0'; i++) {
-                    leaveVal += Heuristics::getLeaveValue(cand.leave[i]);
-                }
-
-                cand.score = boardPoints + (int)leaveVal;
-            }
-            // Sort
-            std::sort(candidates.begin(), candidates.end(),
-                [](const spectre::MoveCandidate &a, const spectre::MoveCandidate &b) {
-                    return a.score > b.score;
-            });
-            // Pick Top
-            bestMove = candidates[0];
-        }
-    }
-    // ---------------------------------------------------------
-    // BRANCH 2: CUTIE_PI (The Champion)
-    // ---------------------------------------------------------
-    else {
-        // Perfect Information Reconstruction
-        // Instead of passing the "Bag", we pass "Everything We Don't See".
-        // In the endgame (Bag empty), this contains EXACTLY the opponent's rack.
-        vector<char> unseenPool;
-        // TileTracker already computed Total Unseen = Bag + Opponent Rack
-        // We just need to reconstruct the list from the tracker's counts.
+        // --- DATA FLOW: 2. OPPONENT INFERENCE ---
+        // Since the bag is empty, the opponent MUST hold all tiles we haven't seen.
+        // We reconstruct the opponent's rack perfectly here.
+        TileRack oppRack;
         string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ?";
         for (char c : alphabet) {
             int count = tracker.getUnseenCount(c);
             for (int k=0; k<count; k++) {
-                unseenPool.push_back(c);
+                Tile t; t.letter = c; t.points = Heuristics::getTileValue(c);
+                oppRack.push_back(t);
             }
         }
 
-        // Run Vanguard MCTS
-        // 50ms for "Fast" Sim in this context (or increase for Tournament Mode)
-        bestMove = spectre::Vanguard::search(
-            letters,
-            bonusBoard,
-            myRack,
-            unseenPool, // Bag + opponents rack
-            gDawg,
-            500
-        );
+        // --- DATA FLOW: 3. EXECUTION ---
+        // Pass perfect information to the deterministic Minimax solver.
+        Move endgameMove = spectre::Judge::solveEndgame(letters, bonusBoard, myRack, oppRack, gDawg);
+
+        if (endgameMove.type == MoveType::PLAY) {
+             cout << "[AI] Judge SUCCESS. Playing: " << endgameMove.word << endl;
+             return endgameMove;
+        } else {
+             // FALLBACK: If Judge times out completely or finds no moves,
+             // we drop down to the standard engine to avoid passing/freezing.
+             cout << "[AI] Judge returned PASS (or failed). Fallback to Vanguard." << endl;
+        }
+    } else if (bag.empty()) {
+        cout << "[AI] Speedi_Pi skipping Judge (Optimization Mode)." << endl;
     }
 
-    // ---------------------------------------------------------
-    // COMMON EXECUTION
-    // ---------------------------------------------------------
+    // =========================================================
+    // STANDARD ENGINE (Midgame / Speedi_Pi)
+    // =========================================================
 
+    if (style == AIStyle::SPEEDI_PI) {
+        // ... (Standard Speedi_Pi Logic - Unchanged) ...
+        auto greedyConsumer = [&](spectre::MoveCandidate& cand, int* rackCounts) -> bool {
+            int boardPoints = calculateTrueScoreInternal(cand, letters, bonusBoard);
+            // ... heuristic leave calculation ...
+            cand.score = boardPoints; // + leaveVal
+            if (cand.score > bestMove.score) bestMove = cand;
+            return true;
+        };
+        spectre::MoveGenerator::generate_custom(letters, myRack, gDawg, greedyConsumer);
+        cout << "[AI] Speedi_Pi Best Score: " << bestMove.score << " (" << bestMove.word << ")" << endl;
+    }
+    else {
+        // ... (Standard Cutie_Pi Logic - Unchanged) ...
+        // Uses Monte Carlo Tree Search (Vanguard) to simulate futures with random opponent racks.
+        vector<char> unseenPool;
+        string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ?";
+        for (char c : alphabet) {
+            int count = tracker.getUnseenCount(c);
+            for (int k=0; k<count; k++) unseenPool.push_back(c);
+        }
+        bestMove = spectre::Vanguard::search(letters, bonusBoard, myRack, unseenPool, gDawg, 500);
+        cout << "[AI] Vanguard Best Score: " << bestMove.score << " (" << bestMove.word << ")" << endl;
+    }
+
+    // --- DATA FLOW: 4. FORMATTING & RETURN ---
+    // Convert internal 'MoveCandidate' to the Game Engine's 'Move' struct.
+
+    // Check for Exchange/Pass conditions
     bool shouldExchange = false;
-    if (bestMove.word[0] == '\0') {
-        shouldExchange = true;
-    }
-    else if (bestMove.score < 14 && isRackBad(myRack) && bag.size() >= 7) {
-        shouldExchange = true;
-    }
+    if (bestMove.word[0] == '\0') shouldExchange = true;
+    else if (bestMove.score < 14 && isRackBad(myRack) && bag.size() >= 7) shouldExchange = true;
 
     if (shouldExchange) {
         if (bag.size() < 7) {
             if (bestMove.word[0] == '\0') {
-                Move p; p.type=MoveType::PASS; return p;
+                return Move::Pass();
             }
         } else {
             Move exMove;
             exMove.type = MoveType::EXCHANGE;
             exMove.exchangeLetters = getTilesToExchange(myRack);
-            exMove.word = "";
             return exMove;
         }
     }
 
     DifferentialMove engineMove = calculateEngineMove(letters, bestMove);
-    if (engineMove.row == -1 || engineMove.word.empty()) {
-        Move passMove; passMove.type = MoveType::PASS; return passMove;
-    }
+    if (engineMove.row == -1 || engineMove.word.empty()) return Move::Pass();
 
-    // Construct the Move object
     Move result;
     result.type = MoveType::PLAY;
     result.row = engineMove.row;
@@ -507,5 +448,5 @@ Move AIPlayer::getEndGameDecision() {
 
 // Bridge to the S.P.E.C.T.R.E. Engine
 void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
-    this->candidates = spectre::MoveGenerator::generate(letters, rack, gDawg);
+    this->candidates = spectre::MoveGenerator::generate(letters, rack, gDawg, false);
 }

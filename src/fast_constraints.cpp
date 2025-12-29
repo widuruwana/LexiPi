@@ -49,56 +49,36 @@ CharMask ConstraintGenerator::computeCrossCheck(const LetterBoard &letters, int 
     }
 
     CharMask allowed = MASK_NONE;
+    int root = gDawg.rootIndex;
 
-    if (!prefix.empty()) {
-        int curr = gDawg.rootIndex;
+    // Iterate All Candidates (A-Z)
+    // We check: Candidate -> Prefix(Reverse) -> Sep -> Suffix
+    for (int i = 0; i < 26; i++) {
+        char candidate = (char)('A' + i);
+        int curr = root;
 
-        // First letter of the prefix
-        curr = gDawg.getChild(curr, toIdx(prefix[0]));
-        if (curr == -1) return MASK_NONE;
+        // A. Step 1: The Candidate (Anchor)
+        curr = gDawg.getChild(curr, i);
+        if (curr == -1) continue;
 
-        // Separator
+        // B. Step 2: The Prefix (Upwards/Reverse)
+        bool prefixValid = true;
+        for (char p : prefix) {
+            curr = gDawg.getChild(curr, toIdx(p));
+            if (curr == -1) {
+                prefixValid = false;
+                break;
+            }
+        }
+        if (!prefixValid) continue;
+
+        // C. Step 3: The Separator
         curr = gDawg.getChild(curr, SEPERATOR);
-        if (curr == -1) return MASK_NONE;
+        if (curr == -1) continue;
 
-        // Rest of the prefix
-        for (size_t i = 1; i < prefix.size(); i++) {
-            curr = gDawg.getChild(curr, toIdx(prefix[i]));
-            if (curr == -1) return MASK_NONE;
-        }
-
-        uint32_t possible = gDawg.nodes[curr].edgeMask; // The children that exist
-
-        while (possible) {
-            int i = __builtin_ctz(possible); // Get next set bit
-            char tryLet = (char)('A' + i);
-
-            // We have the child, but does the Suffix fit?
-            int nextNode = gDawg.getChild(curr, i);
-            if (canTraverseSuffix(nextNode, suffix)) {
-                allowed |= (1 << i);
-            }
-
-            possible &= ~(1 << i); // Clear bit
-        }
-    } else {
-    // CASE B: No Prefix (e.g. _ "A T") -> Word "AT"
-    // Path: CANDIDATE -> SEPARATOR -> SUFFIX
-        int root = gDawg.rootIndex;
-
-        // Try every starting letter
-        for (int i = 0; i < 26; i++) {
-            int curr = gDawg.getChild(root, i);
-            if (curr == -1) continue;
-
-            // Must have separator
-            curr = gDawg.getChild(curr, SEPERATOR);
-            if (curr == -1) continue;
-
-            // Check if suffix fits
-            if (canTraverseSuffix(curr, suffix)) {
-                allowed |= (1 << i);
-            }
+        // D. Step 4: The Suffix (Downwards/Forward)
+        if (canTraverseSuffix(curr, suffix)) {
+            allowed |= (1 << i);
         }
     }
 

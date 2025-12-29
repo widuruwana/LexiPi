@@ -139,9 +139,20 @@ void runPvE() {
         }
 
         if (move.type == MoveType::CHALLENGE) {
-            // AI likely won't challenge in V1, but logic remains
+            // Human is challenging the AI's previous move
             challengeMove(bonusBoard, letters, blanks, bag, players,
                           lastSnapShot, lastMove, currentPlayer, canChallenge, dictActive);
+
+            // VISUAL UPDATE: Reprint the board to show if tiles were removed or stayed
+            cout << "\n--- Board Status After Challenge ---\n";
+            printBoard(bonusBoard, letters);
+            cout << "Scores: You = " << players[0].score << " | " << botName << " ="<< players[1].score << endl;
+
+            // If it's still Human's turn (Successful challenge = Opponent lost turn, Human plays), show rack
+            if (currentPlayer == 0) {
+                cout << "\nYour Turn:" << endl;
+                printRack(players[currentPlayer].rack);
+            }
             continue;
         }
 

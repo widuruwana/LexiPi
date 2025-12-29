@@ -40,4 +40,6 @@ add_executable(scrabblePi src/board.cpp
         include/spectre/vanguard.h
         src/spectre/vanguard.cpp
         include/spectre/spy.h
-        src/spectre/spy.cpp)
+        src/spectre/spy.cpp
+        include/spectre/judge.h
+        src/spectre/judge.cpp)
