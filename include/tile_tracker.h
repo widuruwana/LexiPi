@@ -31,12 +31,10 @@ public:
     }
 
     // Mark the tile as "Seen" (played on board or in our rack)
-    // Support string input
     void markSeen(char c) {
         char upper = toupper(c);
 
         // If input is lowercase, it represents a used blank tile.
-        // Then we decrement the blank count.
         if (islower(c)) {
             if (unseenTiles['?'] > 0) {
                 unseenTiles['?']--;
@@ -48,16 +46,17 @@ public:
         }
     }
 
-    // Helper for strings
-    // C++ Learning.
-    // You can have two member functions with same parameters because of the feature "Function Overloading".
-    // Same name with different parameters
     void markSeen(const string& str) {
         for (char c : str) {
             if (isalpha(c) || c == '?') {
                 markSeen(c);
             }
         }
+    }
+
+    // Alias for Spy integration
+    void remove(char c) {
+        markSeen(c);
     }
 
     int getUnseenCount(char c) const {
@@ -70,5 +69,18 @@ public:
 
     int getTotalUnseen() const {
         return totalUnseenTiles;
+    }
+
+    // [NEW] Required for Monte Carlo Simulation
+    // Exports all unseen tiles into a flat vector for the Spy to sample from.
+    vector<char> getRemainingTiles() const {
+        vector<char> bag;
+        bag.reserve(totalUnseenTiles);
+        for (auto const& [key, val] : unseenTiles) {
+            for (int k = 0; k < val; ++k) {
+                bag.push_back(key);
+            }
+        }
+        return bag;
     }
 };

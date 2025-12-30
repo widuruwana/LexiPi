@@ -3,6 +3,7 @@
 #include "../include/tile_tracker.h"
 #include "../include/spectre/move_generator.h"
 #include "../include/spectre/judge.h"
+#include "../include/spectre/logger.h"
 #include <cstring>
 #include <algorithm>
 #include <iostream>
@@ -10,6 +11,7 @@
 
 #include "../include/spectre/vanguard.h"
 
+using namespace spectre;
 using namespace std;
 using namespace std::chrono;
 
@@ -28,7 +30,7 @@ struct SearchRange {
 };
 
 // Calculate score for a specific move
-static int calculateTrueScoreInternal(const spectre::MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
+static int calculateTrueScoreInternal(const MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
     int totalScore = 0;
     int mainWordScore = 0;
     int mainWordMultiplier = 1;
@@ -144,7 +146,7 @@ SearchRange getActiveBoardArea(const LetterBoard &letters) {
     };
 }
 
-AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &letters, const spectre::MoveCandidate &bestMove) {
+AIPlayer::DifferentialMove AIPlayer::calculateEngineMove(const LetterBoard &letters, const MoveCandidate &bestMove) {
 
     DifferentialMove diff;
     diff.row = -1;
@@ -323,7 +325,7 @@ Move AIPlayer::getMove(const Board &bonusBoard,
 
     candidates.clear();
     const TileRack &myRack = me.rack;
-    spectre::MoveCandidate bestMove;
+    MoveCandidate bestMove;
     bestMove.word[0] = '\0';
     bestMove.score = -1;
 
@@ -346,7 +348,11 @@ Move AIPlayer::getMove(const Board &bonusBoard,
     // CONDITION: Bag is Empty AND we are the Smart Bot (Cutie_Pi)
     // =========================================================
     if (bag.empty() && style == AIStyle::CUTIE_PI) {
-        cout << "[AI] Phase 2: Activating The Judge." << endl;
+        {
+            // Thread-safe logging
+            std::lock_guard<std::mutex> lock(spectre::console_mutex);
+            cout << "[AI] Phase 2: Activating The Judge." << endl;
+        }
 
         // --- DATA FLOW: 2. OPPONENT INFERENCE ---
         // Since the bag is empty, the opponent MUST hold all tiles we haven't seen.
@@ -363,18 +369,13 @@ Move AIPlayer::getMove(const Board &bonusBoard,
 
         // --- DATA FLOW: 3. EXECUTION ---
         // Pass perfect information to the deterministic Minimax solver.
-        Move endgameMove = spectre::Judge::solveEndgame(letters, bonusBoard, myRack, oppRack, gDawg);
+        Move endgameMove = Judge::solveEndgame(letters, bonusBoard, myRack, oppRack, gDawg);
 
         if (endgameMove.type == MoveType::PLAY) {
-             cout << "[AI] Judge SUCCESS. Playing: " << endgameMove.word << endl;
-             return endgameMove;
-        } else {
-             // FALLBACK: If Judge times out completely or finds no moves,
-             // we drop down to the standard engine to avoid passing/freezing.
-             cout << "[AI] Judge returned PASS (or failed). Fallback to Vanguard." << endl;
+            std::lock_guard<std::mutex> lock(spectre::console_mutex);
+            cout << "[AI] Judge SUCCESS. Playing: " << endgameMove.word << endl;
+            return endgameMove;
         }
-    } else if (bag.empty()) {
-        cout << "[AI] Speedi_Pi skipping Judge (Optimization Mode)." << endl;
     }
 
     // =========================================================
@@ -383,15 +384,20 @@ Move AIPlayer::getMove(const Board &bonusBoard,
 
     if (style == AIStyle::SPEEDI_PI) {
         // ... (Standard Speedi_Pi Logic - Unchanged) ...
-        auto greedyConsumer = [&](spectre::MoveCandidate& cand, int* rackCounts) -> bool {
+        auto greedyConsumer = [&](MoveCandidate& cand, int* rackCounts) -> bool {
             int boardPoints = calculateTrueScoreInternal(cand, letters, bonusBoard);
             // ... heuristic leave calculation ...
             cand.score = boardPoints; // + leaveVal
             if (cand.score > bestMove.score) bestMove = cand;
             return true;
         };
-        spectre::MoveGenerator::generate_custom(letters, myRack, gDawg, greedyConsumer);
-        cout << "[AI] Speedi_Pi Best Score: " << bestMove.score << " (" << bestMove.word << ")" << endl;
+        MoveGenerator::generate_custom(letters, myRack, gDawg, greedyConsumer);
+
+        {
+            // Thread-safe logging
+            std::lock_guard<std::mutex> lock(spectre::console_mutex);
+            cout << "[AI] Speedi_Pi Best Score: " << bestMove.score << " (" << bestMove.word << ")" << endl;
+        }
     }
     else {
         // ... (Standard Cutie_Pi Logic - Unchanged) ...
@@ -402,8 +408,13 @@ Move AIPlayer::getMove(const Board &bonusBoard,
             int count = tracker.getUnseenCount(c);
             for (int k=0; k<count; k++) unseenPool.push_back(c);
         }
-        bestMove = spectre::Vanguard::search(letters, bonusBoard, myRack, unseenPool, gDawg, 500);
-        cout << "[AI] Vanguard Best Score: " << bestMove.score << " (" << bestMove.word << ")" << endl;
+        bestMove = Vanguard::search(letters, bonusBoard, myRack, unseenPool, gDawg, 500);
+
+        {
+            // Thread-safe logging
+            std::lock_guard<std::mutex> lock(spectre::console_mutex);
+            cout << "[AI] Vanguard Best Score: " << bestMove.score << " (" << bestMove.word << ")" << endl;
+        }
     }
 
     // --- DATA FLOW: 4. FORMATTING & RETURN ---
@@ -448,5 +459,5 @@ Move AIPlayer::getEndGameDecision() {
 
 // Bridge to the S.P.E.C.T.R.E. Engine
 void AIPlayer::findAllMoves(const LetterBoard &letters, const TileRack &rack) {
-    this->candidates = spectre::MoveGenerator::generate(letters, rack, gDawg, false);
+    this->candidates = MoveGenerator::generate(letters, rack, gDawg, false);
 }

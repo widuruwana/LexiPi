@@ -1,6 +1,7 @@
 #include "../../include/spectre/judge.h"
 #include "../../include/spectre/move_generator.h"
 #include "../../include/heuristics.h"
+#include "../../include/spectre/logger.h"
 #include <algorithm>
 #include <cstring>
 #include <iostream>
@@ -58,7 +59,10 @@ Move Judge::solveEndgame(const LetterBoard& board, const Board& bonusBoard,
     // Print exactly what tiles the Judge thinks it has.
     string rackStr = "";
     for(auto t : myRack) rackStr += t.letter;
-    cout << "[JUDGE] Solver Active. My Rack: [" << rackStr << "]" << endl;
+    {
+        std::lock_guard<std::mutex> lock(spectre::console_mutex);
+        cout << "[JUDGE] Solver Active." << endl;
+    }
     // --------------------------------
 
     // --- STEP 1: RACK CONVERSION ---
