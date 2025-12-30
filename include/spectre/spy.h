@@ -1,36 +1,31 @@
 #pragma once
-#include <vector>
-#include <map>
-#include <array>
-#include <mutex>
+
 #include "../../include/board.h"
-#include "../../include/tile_tracker.h"
-#include "../../include/dawg.h"
 #include "../../include/move.h"
+#include "../../include/rack.h"
+#include "../../include/tiles.h"
+#include <vector>
 
 namespace spectre {
 
     class Spy {
     public:
         Spy();
-        void reset();
 
-        void updateGroundTruth(const LetterBoard& board, const std::vector<char>& myRack);
-        void observeOpponentMove(const Move& move, int score, const LetterBoard& preMoveBoard, Dawg& dict);
+        // Called when the opponent makes a move.
+        // Updates internal probability weights based on what they played.
+        void observeOpponentMove(const Move& move, const LetterBoard& board);
 
-        // [CRITICAL FIX] New signature accepts scratch buffers for Zero-Allocation generation.
-        void generateWeightedRack(int* rackCounts, std::vector<char>& bagBuf, std::vector<double>& weightBuf);
+        // Called before the AI searches.
+        // Re-calculates the "Unseen Pool" (The bag + the opponent's rack).
+        void updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const TileBag& bag);
 
-        // Legacy method overload (for convenience outside hot loops)
-        void generateWeightedRack(int* rackCounts);
+        // Generates a hypothetical opponent rack based on current beliefs.
+        // Used by Vanguard during simulations.
+        std::vector<char> generateWeightedRack() const;
 
     private:
-        TileTracker tracker;
-        std::array<float, 27> beliefMatrix;
-
-        void applyNegativeInference(const LetterBoard& board, int opponentScore, Dawg& dict);
-        void applyRetentionBias(int keptCount);
-        void applyRackBalanceInference(const std::string& wordPlayed);
+        std::vector<char> unseenPool; // Contains every tile currently not on board or my rack
     };
 
 }

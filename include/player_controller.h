@@ -1,31 +1,29 @@
 #pragma once
 
-#include <string>
-#include <vector> // Required for std::vector
+#include "move.h"
 #include "board.h"
 #include "rack.h"
 #include "tiles.h"
-#include "move.h"
-
-using namespace std;
 
 class PlayerController {
 public:
-    virtual ~PlayerController() = default;
+    virtual ~PlayerController() {}
 
-    // Returns a turn-ending move
-    // playerNum is 1-based (1 or 2)
-    virtual Move getMove( const Board &bonusBoard, // The bonus board
-                          const LetterBoard &letters, // Current letters on the board
-                          const BlankBoard &blankBoard,
-                          const TileBag &Bag,
-                          const Player &me,
-                          const Player &opponent,
-                          int playerNum) = 0;
+    // Calculate and return the best move based on the current board state
+    virtual Move getMove(const Board &bonusBoard,
+                         const LetterBoard &letters,
+                         const BlankBoard &blankBoard,
+                         const TileBag &bag,
+                         const Player &me,
+                         const Player &opponent,
+                         int PlayerNum) = 0;
 
-    // Added virtual method to match AIPlayer's override
-    // Default implementation returns empty vector (no exchange)
-    virtual std::vector<char> exchangeTiles(const std::vector<Tile>& rack) { return {}; }
-
+    // Handle end-game specific decisions (like passing or clearing rack)
     virtual Move getEndGameDecision() = 0;
+
+    // NEW: Allows the controller to observe the opponent's move.
+    // This is required for the AI (Spy) to update its probability model based on
+    // what the opponent played or exchanged.
+    // We provide a default empty implementation so HumanPlayer doesn't need to override it.
+    virtual void observeMove(const Move& move, const LetterBoard& board) {}
 };

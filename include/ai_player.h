@@ -1,31 +1,25 @@
 #pragma once
 
-#include "player_controller.h"
-#include "dawg.h"
-#include "fast_constraints.h"
-#include "spectre/move_generator.h"
-#include "rack.h"
 #include "board.h"
+#include "rack.h"
+#include "move.h"
+#include "player_controller.h"
+#include "spectre/move_generator.h"
+#include "spectre/spy.h"
 #include <vector>
 #include <string>
 
-using namespace std;
-
+// DEFINE THE BOTS
 enum class AIStyle {
-    SPEEDI_PI, // Fast, Static Heuristics (The "Speedster")
-    CUTIE_PI // The "Champion"
+    SPEEDI_PI,  // Fast, Static Heuristics (The "Speedster")
+    CUTIE_PI    // MCTS, Simulation (The "Champion")
 };
 
 class AIPlayer : public PlayerController {
 public:
-    AIPlayer() = default;
-    virtual ~AIPlayer() = default;
-
+    // Default to Championship Mode (CUTIE_PI)
     AIPlayer(AIStyle style = AIStyle::CUTIE_PI);
 
-    vector<spectre::MoveCandidate> candidates;
-
-    // Main entry point called by the game loop
     Move getMove(const Board &bonusBoard,
                  const LetterBoard &letters,
                  const BlankBoard &blankBoard,
@@ -34,36 +28,33 @@ public:
                  const Player &opponent,
                  int PlayerNum) override;
 
-    // [FIX] Added declaration to match src/ai_player.cpp
-    std::vector<char> exchangeTiles(const std::vector<Tile>& rack) override;
-
-    // Placeholder for now (required by pure virtual)
     Move getEndGameDecision() override;
 
+    // NEW: Wire the brain to the game loop
+    void observeMove(const Move& move, const LetterBoard& board) override;
+
+    // Challenge Logic (Moved to PUBLIC so the Game Loop can ask the AI)
     bool shouldChallenge(const Move &opponentMove, const LetterBoard &board) const;
 
-    // The solver functions
+    // Legacy/Debug helper
     void findAllMoves(const LetterBoard &letters, const TileRack &rack);
 
     std::string getName() const;
 
 private:
-
     AIStyle style;
+    std::vector<spectre::MoveCandidate> candidates;
 
-    // Recursion state helpers
-    int currentRow;
-    bool currentIsHorizontal;
+    // THE BRAIN: Persistent Spy instance (remembers opponent history)
+    spectre::Spy spy;
 
-    // Helper struct for engine translation
     struct DifferentialMove {
-        int row, col;
-        string word;
+        int row;
+        int col;
+        std::string word;
     };
 
     DifferentialMove calculateEngineMove(const LetterBoard &letters, const spectre::MoveCandidate &bestMove);
-
     bool isRackBad(const TileRack &rack);
-
     std::string getTilesToExchange(const TileRack &rack);
 };
