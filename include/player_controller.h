@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector> // Required for std::vector
 #include "board.h"
 #include "rack.h"
 #include "tiles.h"
@@ -21,6 +22,10 @@ public:
                           const Player &me,
                           const Player &opponent,
                           int playerNum) = 0;
+
+    // Added virtual method to match AIPlayer's override
+    // Default implementation returns empty vector (no exchange)
+    virtual std::vector<char> exchangeTiles(const std::vector<Tile>& rack) { return {}; }
 
     virtual Move getEndGameDecision() = 0;
 };

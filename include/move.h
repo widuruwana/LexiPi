@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include "board.h"
 #include "tiles.h"
 #include "rack.h"
@@ -43,6 +44,9 @@ struct Move {
     // For exchange
     string exchangeLetters;
 
+    // [CRITICAL FIX] Added tiles vector to match AIPlayer usage
+    std::vector<Tile> tiles;
+
     static Move Pass() { return {MoveType::PASS}; }
     static Move Quit() { return {MoveType::QUIT}; }
     static Move Challenge() { return {MoveType::CHALLENGE}; }
@@ -53,19 +57,6 @@ struct Move {
         return {MoveType::EXCHANGE, " ", -1, -1, true, tiles};
     }
 };
-
-// Play a word using the tiles in the rack.
-//
-// - bonusBoard: fixed DL/TL/DW/TW layout
-// - letters:    board letters (A–Z or ' ')
-// - blanks:     which board cells are blanks
-// - bag:        tile bag (to refill rack)
-// - rack:       player's rack (tiles will be consumed/refilled)
-// - startRow:   0-based (A=0, B=1, ...)
-// - startCol:   0-based (1=>0, 2=>1, ...)
-// - horizontal: true = left→right, false = top→bottom
-// - rackWord:   ONLY the letters the player is placing from their rack
-//               (do NOT include letters already on the board)
 
 MoveResult playWord(
     const Board &bonusBoard,

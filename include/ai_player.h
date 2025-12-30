@@ -34,6 +34,9 @@ public:
                  const Player &opponent,
                  int PlayerNum) override;
 
+    // [FIX] Added declaration to match src/ai_player.cpp
+    std::vector<char> exchangeTiles(const std::vector<Tile>& rack) override;
+
     // Placeholder for now (required by pure virtual)
     Move getEndGameDecision() override;
 
@@ -53,13 +56,11 @@ private:
     bool currentIsHorizontal;
 
     // Helper struct for engine translation
-    // Covert "formed word" -> "tiles playing"
     struct DifferentialMove {
         int row, col;
         string word;
     };
 
-    // Calculate the correct engine input (skip existing tiles, shifts start coord)
     DifferentialMove calculateEngineMove(const LetterBoard &letters, const spectre::MoveCandidate &bestMove);
 
     bool isRackBad(const TileRack &rack);
