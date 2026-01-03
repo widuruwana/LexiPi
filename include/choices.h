@@ -6,6 +6,7 @@
 #include "../include/rack.h"
 #include "../include/dict.h"
 #include "../include/player_controller.h"
+#include "../include/engine/referee.h"
 
 #include <iostream>
 #include <string>
@@ -32,6 +33,8 @@ bool handleEmptyRackEndGame(Board &bonusBoard,
 // - Increments players passCount
 // - Clears challenge window
 // - Switches the current player
+void applyMoveToState(GameState& state, const Move& move, int score);
+
 void passTurn(Player players[2], int &currentPlayer, bool &canChallenge, LastMoveInfo &lastMove);
 
 // Show tile set from current player's prespective
@@ -74,14 +77,9 @@ void handleMoveChoice(Board &bonusBoard,
                       bool &canChallenge);
 */
 
-bool executePlayMove(Board &bonusBoard,
-                     LetterBoard &letters,
-                     BlankBoard &blanks,
-                     TileBag &bag,
-                     Player players[2],
-                     Player &currentPlayer,
+bool executePlayMove(GameState& state,
                      const Move &move,
-                     GameSnapshot &lastSnapShot);
+                     const Board &bonusBoard);
 
 bool executeExchangeMove(TileBag &bag, Player &players, const Move &move);
 

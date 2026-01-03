@@ -3,7 +3,7 @@
 #include <vector>
 #include "move_generator.h"
 #include "spy.h" // Include the Spy definition
-#include "../../include/dawg.h"
+#include "../../include/dictionary.h"
 
 namespace spectre {
 

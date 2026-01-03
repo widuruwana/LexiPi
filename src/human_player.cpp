@@ -1,6 +1,8 @@
 #include "../include/player_controller.h"
 #include "../include/human_player.h"
 #include "../include/choices.h"
+#include "../include/engine/referee.h"
+#include "../include/engine/state.h"
 #include <iostream>
 #include <limits>
 #include <algorithm>
@@ -196,26 +198,22 @@ Move HumanPlayer::parseMoveInput(const Board &bonusBoard,
 
     bool horizontal = (toupper(static_cast<unsigned char>(dirStr[0])) == 'H');
 
-    // Preview on copies
-    LetterBoard previewLetters = letters;
-    BlankBoard previewBlanks = blankBoard;
-    TileRack previewRack = rack;
-    TileBag previewBag = bag;
+    // Constructing a temporary state for the ref
+    GameState previewState;
+    previewState.board = letters;
+    previewState.blanks = blankBoard;
+    previewState.bag = bag;
 
-    MoveResult preview = playWord(
-        bonusBoard,
-        previewLetters,
-        previewBlanks,
-        previewBag,
-        previewRack,
-        row,
-        col,
-        horizontal,
-        word
-    );
+    // Only populate current player's rack for validation purposes
+    previewState.players[0].rack = rack;
+    previewState.currentPlayerIndex = 0;
+
+    // Construct the move
+    Move moveAttempt = Move::Play(row, col, horizontal, word);
+    MoveResult preview = Referee::validateMove(previewState, moveAttempt, bonusBoard, gDawg);
 
     if (!preview.success) {
-        cout << "Move Failed " << preview.errorMessage << endl;
+        cout << "Move Failed " << preview.message << endl;
         return {MoveType::NONE};
     }
 
@@ -239,6 +237,6 @@ Move HumanPlayer::parseMoveInput(const Board &bonusBoard,
         return {MoveType::NONE};
     }
 
-    return Move::Play(row, col, horizontal, word);
+    return moveAttempt;
 
 }

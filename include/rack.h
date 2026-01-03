@@ -3,11 +3,9 @@
 #include <vector>
 #include <string>
 #include "../include/tiles.h"
+#include "engine/types.h"
 
 using namespace std;
-
-// A rack is the 7 tiles a player holds
-using TileRack = vector<Tile>;
 
 // Draw up to 'count' tiles from the bag into the rack
 // returns how many tiles were actually drawn

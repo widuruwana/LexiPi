@@ -2,31 +2,9 @@
 
 #include <array>
 #include <string>
+#include "engine/types.h"
 
 using namespace std;
-
-// Board Constants
-constexpr int BOARD_SIZE = 15; //15 x 15 scrabble board
-constexpr int CELL_INNER_WIDTH = 5; //Characters inside each cell
-
-enum class CellType {
-    Normal,
-    DLS, //Double Letter Score
-    TLS, //Triple Letter Score
-    DWS, //Double Word Score
-    TWS, //Triple Word Score
-};
-
-// 2D board type
-using Board = array < array < CellType, BOARD_SIZE >, BOARD_SIZE>;
-
-//Holds the actual letters placed on the board
-using LetterBoard = array < array < char, BOARD_SIZE >, BOARD_SIZE >;
-
-// Track whether a letter on the board came from a blank tile.
-// true = this square is a blank (score 0)
-// false = normal tile
-using BlankBoard = array < array < bool, BOARD_SIZE >, BOARD_SIZE >;
 
 //initialize all letters to ' '
 void clearLetterBoard(LetterBoard &letters);

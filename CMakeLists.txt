@@ -23,8 +23,8 @@ add_executable(scrabblePi src/board.cpp
         include/player_controller.h
         src/human_player.cpp
         include/human_player.h
-        include/dawg.h
-        src/dawg.cpp
+        include/dictionary.h
+        src/dictionary.cpp
         include/heuristics.h
         include/fast_constraints.h
         src/fast_constraints.cpp
@@ -43,4 +43,8 @@ add_executable(scrabblePi src/board.cpp
         src/spectre/spy.cpp
         include/spectre/judge.h
         src/spectre/judge.cpp
-        include/spectre/logger.h)
+        include/spectre/logger.h
+        include/engine/types.h
+        include/engine/state.h
+        include/engine/referee.h
+        src/engine/referee.cpp)

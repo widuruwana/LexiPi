@@ -1,6 +1,6 @@
 #include "../include/fast_constraints.h"
 #include "../include/dict.h"
-#include "../include/dawg.h"
+#include "../include/dictionary.h"
 #include <iostream>
 #include <string>
 

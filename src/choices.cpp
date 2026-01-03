@@ -20,43 +20,19 @@ void showUnseenTiles(const TileBag &bag, const Player players[2], int currentPla
     printTileBag(bag, players[opponent].rack, revealOpponent);
 }
 
-bool executePlayMove(Board &bonusBoard,
-                     LetterBoard &letters,
-                     BlankBoard &blanks,
-                     TileBag &bag,
-                     Player players[2],
-                     Player &currentPlayer,
+bool executePlayMove(GameState& state,
                      const Move &move,
-                     GameSnapshot &lastSnapShot) {
+                     const Board &bonusBoard) {
 
-    // Taking an snapshot before applying final word
-    lastSnapShot.letters = letters;
-    lastSnapShot.blanks = blanks;
-    lastSnapShot.bag = bag;
-    lastSnapShot.players[0] = players[0];
-    lastSnapShot.players[1] = players[1];
-
-    MoveResult result = playWord(
-        bonusBoard,
-        letters,
-        blanks,
-        bag,
-        currentPlayer.rack,
-        move.row,
-        move.col,
-        move.horizontal,
-        move.word
-    );
+    MoveResult result = Referee::validateMove(state, move, bonusBoard, gDawg);
 
     if (result.success) {
-        //cout << "Move played. Score: " << result.score << endl;
-        currentPlayer.score += result.score;
-
-        players[0].passCount = 0;
-        players[1].passCount = 0;
+        // 2. Act (The Executioner)
+        cout << "Move Valid! Score: " << result.score << endl;
+        applyMoveToState(state, move, result.score);
         return true;
     } else {
-        //cout << "Unexpected error applying move: " << result.errorMessage << endl;
+        cout << "Invalid Move: " << result.message << endl;
         return false;
     }
 }

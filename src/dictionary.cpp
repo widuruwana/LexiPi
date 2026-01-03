@@ -1,4 +1,4 @@
-#include "../include/dawg.h"
+#include "../include/dictionary.h"
 #include <fstream>
 #include <iostream>
 #include <algorithm>

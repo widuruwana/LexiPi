@@ -1,8 +1,7 @@
-#include "../include/move.h"
-
+#include "../../include/engine/referee.h"
+#include "../../include/rack.h"
 #include <algorithm>
 #include <cctype>
-#include <vector>
 
 using namespace std;
 
@@ -234,11 +233,26 @@ static int scoreCrossWord(const Board &bonusBoard, const LetterBoard &letters, c
     return totalLetterScore * wordMultiplier;
 }
 
-MoveResult playWord(const Board &bonusBoard, LetterBoard &letters, BlankBoard &blanks, TileBag &bag, TileRack &rack,
-                    int startRow, int startCol, bool horizontal, const string &rackWordLower) {
+MoveResult Referee::validateMove(const GameState &state, const Move &move, const Board &bonusBoard, Dawg &dict) {
     MoveResult res{};
     res.success = false;
     res.score = 0;
+
+    LetterBoard letters = state.board;
+    BlankBoard blanks = state.blanks;
+    TileRack rack = state.players[state.currentPlayerIndex].rack;
+
+    // Map the 'Move' struct to the old variable names
+    int startRow = move.row;
+    int startCol = move.col;
+    bool horizontal = move.horizontal;
+    string rackWordLower = move.word;
+    // ------------------------------------------------------------------
+
+    if (move.type != MoveType::PLAY) {
+        res.message = "Referee only validates PLAY moves.";
+        return res;
+    }
 
     if (rackWordLower.empty()) {
         res.message = "Empty rack word";
@@ -467,11 +481,6 @@ MoveResult playWord(const Board &bonusBoard, LetterBoard &letters, BlankBoard &b
     sort(usedIndices.begin(), usedIndices.end(), greater<int>());
     for (int idx: usedIndices) {
         rack.erase(rack.begin() + idx);
-    }
-
-    // Refill rack up to 7 tiles
-    if (rack.size() < 7) {
-        drawTiles(bag, rack, static_cast<int>(7 - rack.size()));
     }
 
     return res;
