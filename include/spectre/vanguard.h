@@ -3,21 +3,21 @@
 #include <vector>
 #include "move_generator.h"
 #include "spy.h" // Include the Spy definition
-#include "../../include/dawg.h"
+#include "../engine/dictionary.h"
 
 namespace spectre {
 
     class Vanguard {
     public:
         // Update: Now accepts 'const Spy&' instead of 'unseenBag'
-        static MoveCandidate search(
-            const LetterBoard& board,
-            const Board& bonusBoard,
-            const TileRack& rack,
-            const Spy& spy,
-            Dawg& dict,
-            int timeLimitMs = 1000
-        );
+        static MoveCandidate search(const LetterBoard& board,
+                                    const Board& bonusBoard,
+                                    const TileRack& rack,
+                                    const Spy& spy,
+                                    Dictionary& dict,
+                                    int timeLimitMs,
+                                    int bagSize,
+                                    int scoreDiff);
 
     private:
         // Helper to play out a simulation
@@ -28,7 +28,7 @@ namespace spectre {
             int* oppRackCounts,
             std::vector<char> bag, // passed by value to mutate copy
             bool myTurn,
-            Dawg& dict
+            Dictionary& dict
         );
 
         // Helper to calculate score

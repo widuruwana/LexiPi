@@ -5,10 +5,10 @@
 #include <chrono>
 
 #include "move_generator.h"
-#include "../../include/board.h"
-#include "../../include/rack.h"
+#include "../engine/board.h"
+#include "../../include/engine/rack.h"
 #include "../../include/move.h"
-#include "../../include/dawg.h"
+#include "../engine/dictionary.h"
 
 namespace spectre {
 
@@ -28,7 +28,7 @@ public:
                              const Board& bonusBoard,
                              const TileRack& myRack,
                              const TileRack& oppRack,
-                             Dawg& dict);
+                             Dictionary& dict);
 
 private:
     /**
@@ -46,7 +46,7 @@ private:
                    const Board& bonusBoard,
                    int* myRackCounts,
                    int* oppRackCounts,
-                   Dawg& dict,
+                   Dictionary& dict,
                    int alpha,
                    int beta,
                    bool maximizingPlayer,

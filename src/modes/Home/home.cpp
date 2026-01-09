@@ -2,47 +2,13 @@
 #include <limits>
 
 #include "../../../include/modes/Home/home.h"
-
-#include "../../../include/board.h"
-#include "../../../include/tiles.h"
-#include "../../../include/rack.h"
-#include "../../../include/dict.h"
+#include "../../../include/engine/dictionary.h"
+#include "../../../include/interface/renderer.h"
 
 using namespace std;
 
-void clearScreen() {
-// for Windows
-#ifdef _WIN32
-    system("cls");
-
-// for Linux/macOS (ANSI terminal)
-#else
-    // ANSI clear: erase screen, move cursor to home
-    cout << "\033[2J\033[H";
-#endif
-}
-
-// wait until user presses Q or q
-void waitForQuitKey() {
-    cout << "\n\033[1;33mPress 'Q' to return...\033[0m\n";
-
-    while (true) {
-        char ch;
-        if (!(cin >> ch)) {
-            cin.clear();
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            continue;
-        }
-        ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
-        if (ch == 'Q') {
-            break;
-        }
-        cout << "\n\033[1;33mPress 'Q' to return...\033[0m\n";
-    }
-}
-
 void showAboutScreen() {
-    clearScreen();
+    Renderer::clearScreen();
 
 
     cout << R"(
@@ -138,7 +104,7 @@ void showAboutScreen() {
 
     +----------------------------------------------------------------------------------------------------------------+
 
-    Copyright © 2025 widuruwana. All rights reserved.
+    Copyright (C) 2025 K. I. Widyarathne. All rights reserved.
 
     The contents of this project are proprietary and confidential. Unauthorized copying, transferring, or reproduction
     of the contents of this project, via any medium, is strictly prohibited. The receipt or possession of the source
@@ -146,12 +112,12 @@ void showAboutScreen() {
 
     )";
 
-    waitForQuitKey();
-    clearScreen();
+    Renderer::waitForQuitKey();
+    Renderer::clearScreen();
 }
 
 void printTitleScreen() {
-    clearScreen();
+    Renderer::clearScreen();
 
     cout << R"(
 .----------------.  .----------------.  .----------------.  .----------------.   .----------------.  .----------------.
@@ -170,7 +136,7 @@ void printTitleScreen() {
 }
 
 void showHowToPlayScreen() {
-    clearScreen();
+    Renderer::clearScreen();
 
     // Set color for the whole manual (bright cyan)
     cout << "\033[1;36m";
@@ -304,12 +270,12 @@ void showHowToPlayScreen() {
     // Reset the color
     cout << "\033[0m";
 
-    waitForQuitKey();
-    clearScreen();
+    Renderer::waitForQuitKey();
+    Renderer::clearScreen();
 }
 
 void wordWizard(const string &word) {
-    clearScreen();
+    Renderer::clearScreen();
 
     cout << R"(
                      .----------------.  .----------------.  .----------------.  .----------------.
@@ -375,7 +341,7 @@ void wordWizard(const string &word) {
     bool playIsValid = true;
 
     for ( string &wo: challengedWords) {
-        if (!isValidWord(wo)) {
+        if (!gDictionary.isValidWord(wo)) {
             playIsValid = false;
             break;
         }
@@ -403,7 +369,7 @@ void wordWizard(const string &word) {
 )" << "\033[0m" << endl;
     }
 
-    waitForQuitKey();
-    clearScreen();
+    Renderer::waitForQuitKey();
+    Renderer::clearScreen();
 }
 

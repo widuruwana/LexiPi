@@ -7,151 +7,35 @@
 #include <mutex>
 
 #include "../../../include/modes/AiAi/aiai.h"
-#include "../../../include/board.h"
+#include "../../../include/engine/board.h"
 #include "../../../include/move.h"
-#include "../../../include/tiles.h"
-#include "../../../include/rack.h"
-#include "../../../include/dict.h"
+#include "../../../include/engine/tiles.h"
+#include "../../../include/engine/rack.h"
+#include "../../../include/engine/dictionary.h"
+#include "../../../include/engine/game_director.h"
 #include "../../../include/choices.h"
 #include "../../../include/ai_player.h"
 #include "../../../include/modes/Home/home.h"
+#include "../../../include/interface/renderer.h"
+
+#include "../../../include/engine/state.h"
+#include "../../../include/engine/referee.h"
+#include "../../../include/engine/mechanics.h"
 
 using namespace std;
 
-// Global mutex to prevent threads from garbling the console output
-static std::mutex g_io_mutex;
+// Wrapper for threading
+MatchResult runSingleGame(AIStyle s1, AIStyle s2, int id, bool verbose) {
+    AIPlayer bot1(s1);
+    AIPlayer bot2(s2);
+    Board b = createBoard();
 
-// Stats
-struct MatchResult {
-    int scoreP1;
-    int scoreP2;
-    int winner; // 0 = P1, 1 = P2, -1 = Draw
-};
+    GameDirector::Config cfg;
+    cfg.verbose = verbose;
+    cfg.allowChallenge = false; // Speed optimization for Simulation
 
-// Encapsulate a single game logic for threading
-MatchResult runSingleGame(AIStyle styleP1, AIStyle styleP2, int gameId, bool verbose) {
-    // Thread-Local Game State (No Shared Memory = No Locks = Fast)
-    Board bonusBoard = createBoard();
-    LetterBoard letters;
-    clearLetterBoard(letters);
-    BlankBoard blanks;
-    clearBlankBoard(blanks);
-    TileBag bag = createStandardTileBag();
-    shuffleTileBag(bag);
-
-    Player players[2];
-    PlayerController* controllers[2];
-
-    drawTiles(bag, players[0].rack, 7);
-    players[0].score = 0;
-    players[0].passCount = 0;
-    controllers[0] = new AIPlayer(styleP1);
-
-    drawTiles(bag, players[1].rack, 7);
-    players[1].score = 0;
-    players[1].passCount = 0;
-    controllers[1] = new AIPlayer(styleP2);
-
-    int currentPlayer = 0;
-    GameSnapshot lastSnapShot;
-    LastMoveInfo lastMove;
-    lastMove.exists = false;
-    lastMove.playerIndex = -1;
-
-    bool canChallenge = false;
-    bool dictActive = true;
-    bool gameOver = false;
-
-    // Helper to print state safely
-    auto printState = [&](const string& action, const Move& move) {
-        if (!verbose) return;
-        std::lock_guard<std::mutex> lock(g_io_mutex);
-
-        cout << "\n------------------------------------------------------------\n";
-        cout << "GAME " << gameId << " | Turn: Player " << (currentPlayer + 1) << " ("
-             << (currentPlayer == 0 ? "P1" : "P2") << ")\n";
-
-        cout << "Action: " << action;
-        if (move.type == MoveType::PLAY) cout << " '" << move.word << "' at " << (char)('A' + move.row) << (move.col + 1);
-        if (move.type == MoveType::EXCHANGE) cout << " Tiles: " << move.exchangeLetters;
-        cout << endl;
-
-        printBoard(bonusBoard, letters);
-
-        cout << "Rack P1: "; printRack(players[0].rack);
-        cout << "Rack P2: "; printRack(players[1].rack);
-
-        cout << "Scores: P1=" << players[0].score << " | P2=" << players[1].score << endl;
-        cout << "------------------------------------------------------------\n";
-    };
-
-    while (!gameOver) {
-        if (handleSixPassEndGame(players)) { gameOver = true; break; }
-        if (handleEmptyRackEndGame(bonusBoard, letters, blanks, bag, players,
-                                   lastSnapShot, lastMove, currentPlayer, canChallenge,
-                                   dictActive, controllers[currentPlayer])) {
-            gameOver = true; break;
-        }
-
-        Move move = controllers[currentPlayer]->getMove(bonusBoard, letters, blanks, bag,
-                                                        players[currentPlayer],
-                                                        players[1 - currentPlayer],
-                                                        currentPlayer + 1);
-
-        if (move.type == MoveType::PASS) {
-            printState("PASS", move);
-            passTurn(players, currentPlayer, canChallenge, lastMove);
-            continue;
-        }
-        if (move.type == MoveType::EXCHANGE) {
-            if (executeExchangeMove(bag, players[currentPlayer], move)) {
-                printState("EXCHANGE", move);
-                lastMove.exists = false;
-                canChallenge = false;
-                players[currentPlayer].passCount++;
-                currentPlayer = 1 - currentPlayer;
-            } else {
-                if(verbose) {
-                    std::lock_guard<std::mutex> lock(g_io_mutex);
-                    cout << "[GAME " << gameId << "] Exchange Failed.\n";
-                }
-                passTurn(players, currentPlayer, canChallenge, lastMove);
-            }
-            continue;
-        }
-        if (move.type == MoveType::PLAY) {
-            bool success = executePlayMove(bonusBoard, letters, blanks, bag, players,
-                                           players[currentPlayer], move, lastSnapShot);
-            if (success) {
-                printState("PLAY", move);
-                lastMove.exists = true;
-                lastMove.playerIndex = currentPlayer;
-                lastMove.startRow = move.row;
-                lastMove.startCol = move.col;
-                lastMove.horizontal = move.horizontal;
-                canChallenge = true;
-                currentPlayer = 1 - currentPlayer;
-            } else {
-                passTurn(players, currentPlayer, canChallenge, lastMove);
-            }
-        }
-    }
-
-    // Result
-    int winner = -1;
-    if (players[0].score > players[1].score) winner = 0;
-    else if (players[1].score > players[0].score) winner = 1;
-
-    delete controllers[0];
-    delete controllers[1];
-
-    if (verbose) {
-        static std::mutex io_mutex;
-        std::lock_guard<std::mutex> lock(io_mutex);
-        cout << "Game " << gameId << " Finished. P1: " << players[0].score << " P2: " << players[1].score << endl;
-    }
-
-    return {players[0].score, players[1].score, winner};
+    GameDirector director(&bot1, &bot2, b, cfg);
+    return director.run(id);
 }
 
 void runAiAi() {
@@ -179,12 +63,12 @@ void runAiAi() {
     cout << "Watch the games? (1 = Yes, 0 = No/Fast): ";
     cin >> verbose;
 
-    if (!loadDictionary("csw24.txt")) { cout << "Error: Dictionary not found.\n"; return; }
+    if (!gDictionary.loadFromFile("csw24.txt")) { cout << "Error: Dictionary not found.\n"; return; }
 
     auto startTotal = chrono::high_resolution_clock::now();
 
     // PARALLEL EXECUTION
-    // We utilize std::async to launch games on available cores
+    // utilize std::async to launch games on available cores
     vector<future<MatchResult>> futures;
     int batchSize = thread::hardware_concurrency(); // likely 6 on your Ryzen
     if (batchSize == 0) batchSize = 4;
@@ -235,7 +119,7 @@ void runAiAi() {
     cout << "Combined Avg: " << ((totalP1 + totalP2) / (double)numGames / 2.0) << "\n";
     cout << "=========================================\n";
 
-    waitForQuitKey();
-    clearScreen();
+    Renderer::waitForQuitKey();
+    Renderer::clearScreen();
 }
 

@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "../include/dict.h"
+#include "../include/engine/dictionary.h"
 #include "../include/modes/AiAi/aiai.h"
 #include "../include/modes/PvP/pvp.h"
 #include "../include/modes/Home/home.h"
@@ -17,7 +17,10 @@ int main() {
 
         char mode;
 
-        loadDictionary("csw24.txt");
+        if (!gDictionary.loadFromFile("csw24.txt")) {
+            cerr << "ERROR: A valid Dictionary isn't found!" << endl;
+            // Proceeding might be dangerous but allowed for UI testing
+        }
 
         cout << "=========================================\n";
         cout << "           Welcome to LEXI_PI\n";

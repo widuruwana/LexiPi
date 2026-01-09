@@ -1,31 +1,39 @@
 #pragma once
 
-#include "../../include/board.h"
+#include "../engine/board.h"
 #include "../../include/move.h"
-#include "../../include/rack.h"
-#include "../../include/tiles.h"
+#include "../../include/engine/rack.h"
+#include "../engine/tiles.h"
 #include <vector>
+#include <random>
 
 namespace spectre {
+
+    struct Particle {
+        std::vector<char> rack;
+        double weight;
+    };
 
     class Spy {
     public:
         Spy();
 
-        // Called when the opponent makes a move.
-        // Updates internal probability weights based on what they played.
         void observeOpponentMove(const Move& move, const LetterBoard& board);
-
-        // Called before the AI searches.
-        // Re-calculates the "Unseen Pool" (The bag + the opponent's rack).
         void updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const TileBag& bag);
-
-        // Generates a hypothetical opponent rack based on current beliefs.
-        // Used by Vanguard during simulations.
         std::vector<char> generateWeightedRack() const;
 
     private:
-        std::vector<char> unseenPool; // Contains every tile currently not on board or my rack
+        std::vector<char> unseenPool;
+        std::vector<Particle> particles;
+        const int PARTICLE_COUNT = 1000;
+
+        // Internal Logic
+        int findBestPossibleScore(const std::vector<char>& rack, const LetterBoard& board);
+
+        void initParticles();
+
+        // FIX: Added parameter to match implementation
+        void resampleParticles(double totalWeight);
     };
 
 }
