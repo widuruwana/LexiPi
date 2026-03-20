@@ -1,10 +1,10 @@
-#include "../../include/spectre/move_generator.h"
+#include "../../include/kernel/move_generator.h"
 #include <algorithm>
 #include <cstring>
 
 using namespace std;
 
-namespace spectre {
+namespace kernel {
 
 const int SEPERATOR = 26;
 
@@ -37,7 +37,7 @@ vector<MoveCandidate> MoveGenerator::generate(const LetterBoard &board, const Ti
     };
 
     MoveGenerator::generate_custom(board, rack, dict, collectingConsumer);
-
+    
     // Deduplication (Required for Legacy Speedi_Pi logic)
     if (!candidates.empty()) {
         sort(candidates.begin(), candidates.end(),

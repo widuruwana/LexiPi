@@ -1,156 +1,303 @@
 #include "../../include/spectre/treasurer.h"
-#include <algorithm>
+#include "../../include/engine/mechanics.h"
 #include <cmath>
+#include <algorithm>
+#include <iomanip>
+#include <map>
 #include <iostream>
+#include <numeric>
 
 using namespace std;
 
 namespace spectre {
 
-double Treasurer::evaluateEquity(const std::vector<Tile>& leave, int scoreDiff, int bagSize) {
-    if (leave.empty()) return 0.0; // Empty rack has 0 intrinsic value (though going out has utility)
+    Treasurer::Treasurer() {}
 
-    std::vector<char> tiles;
-    for(const auto& t : leave) tiles.push_back(t.letter);
+    float Treasurer::evaluate_equity(const GameState& state, const Move& move, int moveScore) {
+        // --- 1. RECONSTRUCT THE PORTFOLIO (The Leave) ---
 
-    // 1. FUNDAMENTAL ANALYSIS (Sum of Asset Values)
-    double fundamentals = 0.0;
-    for (char c : tiles) {
-        fundamentals += getFundamentalValue(c, bagSize);
+        /*
+        std::cout << "[TREASURER] Eval Move: " << move.word
+                  << " | Raw Score: " << moveScore
+                  << std::endl;
+        */
+
+        // A. Snapshot the Rack (Asset Ledger)
+        // Using map to track counts of available tiles
+        std::map<char, int> rackLedger;
+        for (const auto& t : state.players[state.currentPlayerIndex].rack) {
+            rackLedger[t.letter]++;
+        }
+
+        // B. Identify Placed Tiles (The "Sales")
+        int r = move.row;
+        int c = move.col;
+        int dr = move.horizontal ? 0 : 1;
+        int dc = move.horizontal ? 1 : 0;
+
+        // Iterate through the word provided in the Move struct
+        for (int i = 0; i < 15; i++) {
+            char letter = move.word[i];
+            if (letter == '\0') break;
+            if (r >= 15 || c >= 15) break;
+
+            if (state.board[r][c] == ' ') {
+                // --- FIX START ---
+                // Check if the move string explicitly indicates a blank (lowercase)
+                bool isBlank = (letter >= 'a' && letter <= 'z');
+
+                if (isBlank) {
+                    // Explicit Blank Usage
+                    if (rackLedger['?'] > 0) rackLedger['?']--;
+                } else {
+                    // Normal Letter Usage
+                    char upperC = letter; // It's already uppercase
+                    if (rackLedger[upperC] > 0) {
+                        rackLedger[upperC]--;
+                    } else if (rackLedger['?'] > 0) {
+                        // Fallback: We used a blank as a letter but didn't notate it as lowercase?
+                        // (Safety catch, but the isBlank check above handles standard notation)
+                        rackLedger['?']--;
+                    }
+                }
+                // --- FIX END ---
+            }
+
+            // Advance cursor
+            r += dr;
+            c += dc;
+        }
+
+        // C. Construct the Leave Vector
+        std::vector<char> leave;
+        for (auto const& [key, val] : rackLedger) {
+            for (int k = 0; k < val; k++) leave.push_back(key);
+        }
+
+        //std::cout << "[TREASURER] Leave: ";
+        //for (char c : leave) std::cout << c;
+        //std::cout << std::endl;
+
+        // --- 2. MARKET CONTEXT ---
+        int bagSize = (int)state.bag.size();
+
+        // Score Diff Calculation
+        int myScore = state.players[state.currentPlayerIndex].score;
+        int oppScore = state.players[1 - state.currentPlayerIndex].score;
+        int scoreDiff = myScore - oppScore;
+
+        // --- 3. FINANCIAL ANALYSIS ---
+
+        // A. Fundamental Value (Sum of Parts)
+        float fundamentals = 0.0f;
+        for (char c : leave) {
+            fundamentals += get_fundamental_value(c, bagSize);
+        }
+
+        // B. Synergy (Correlation Bonus)
+        float synergy = calculate_synergy(leave);
+
+        // C. Risk Calculation (Rack Volatility * Market Volatility)
+        float rackRisk = calculate_rack_volatility(leave);
+        float marketRisk = calculate_market_volatility(state.bag);
+
+        // Amplification: Risky rack in a risky market is dangerous.
+        float totalRisk = rackRisk * (1.0f + marketRisk);
+
+        // D. Gamma Adjustment (Risk Preference)
+        float gamma = calculate_gamma(scoreDiff);
+
+        // --- 4. NET ASSET VALUE (NAV) ---
+        // Equity = (Fundamentals + Synergy) - (RiskAversion * Risk)
+        float equity = (fundamentals + synergy) - (gamma * totalRisk);
+
+        /*
+        std::cout << "[TREASURER] Financial Report:"
+                  << "\n\t Fundamentals: " << fundamentals
+                  << "\n\t Synergy: " << synergy
+                  << "\n\t Total Risk: " << totalRisk
+                  << "\n\t Gamma (Risk Aversion): " << gamma
+                  << "\n\t Equity Adjustment: " << equity
+                  << "\n\t Final NAV: " << ((float)moveScore + equity)
+                  << std::endl;
+        */
+
+        // Return Total NAV (Immediate Cash + Future Equity)
+        return (float)moveScore + equity;
     }
 
-    // 2. COVARIANCE / SYNERGY (Hedging & Cannibalization)
-    double synergy = calculateSynergy(tiles);
+    float Treasurer::get_fundamental_value(char tile, int bagSize) {
+        // 1. DERIVATIVES (The Blank)
+        if (tile == '?') {
+            if (bagSize > 40) return 35.0f; // High Option Value
+            if (bagSize > 10) return 25.0f; // Stable
+            return 8.0f;   // Expiry
+        }
 
-    // 3. RISK ASSESSMENT (Gamma Protocol)
-    double volatility = calculateVolatility(tiles);
-    double gamma = getGamma(scoreDiff);
+        // 2. BLUE CHIP (S)
+        if (tile == 'S') return 10.0f;
 
-    // 4. NET ASSET VALUE CALCULATION
-    // Formula: Equity = (Fundamentals + Synergy) - (Risk_Aversion * Volatility)
+        // 3. TOXIC ASSETS (Liabilities)
+        if (tile == 'Q') return -12.0f;
+        if (tile == 'V') return -6.0f;
+        if (tile == 'U') return -4.0f;
 
-    // Logic Check:
-    // If Gamma is POSITIVE (Leading), we penalize volatility (Pension Fund).
-    // If Gamma is NEGATIVE (Trailing), we bonus volatility (Hedge Fund).
+        // 4. TREASURY BONDS (E, R, I, N, A, T)
+        const std::string bonds = "ERINAT";
+        if (bonds.find(tile) != std::string::npos) return 4.0f;
 
-    double equity = (fundamentals + synergy) - (gamma * volatility);
+        // 5. JUNK BONDS (Z, X, J, K)
+        const std::string junk = "ZXJK";
+        if (junk.find(tile) != std::string::npos) return -2.0f;
 
-    return equity;
-}
-
-double Treasurer::getFundamentalValue(char tile, int bagSize) {
-    // ASSET CLASSES based on "Scrabble Rack as Financial Portfolio"
-
-    // 1. DERIVATIVES (The Blank)
-    // Modeled as a Call Option with Theta Decay.
-    if (tile == '?') {
-        if (bagSize > 40) return 35.0; // High Volatility Phase
-        if (bagSize > 10) return 25.0; // Stable Phase
-        return 10.0; // Expiry Phase (Theta decay destroys value)
+        // Default Commodity
+        return 1.0f;
     }
 
-    // 2. BLUE CHIP EQUITY (Liquidity Providers)
-    if (tile == 'S') return 10.0;
+    float Treasurer::calculate_synergy(const std::vector<char>& leave) {
+        if (leave.empty()) return 0.0f;
 
-    // 3. TREASURY BONDS (Solvency/Turnover)
-    // E, R, I, N, A, T -> Safe, low yield
-    if (string("ERINAT").find(tile) != string::npos) return 4.0;
-    if (string("DL").find(tile) != string::npos) return 2.0;
+        float synergy = 0.0f;
+        std::string s = "";
+        for (char c : leave) s += c;
+        std::sort(s.begin(), s.end());
 
-    // 4. HIGH YIELD BONDS (Speculative)
-    // Z, X, J, K -> High potential, illiquid
-    if (string("ZXJK").find(tile) != string::npos) return -3.0; // Holding cost is negative unless played
+        // A. HEDGING (Q-U Bond)
+        bool hasQ = (s.find('Q') != std::string::npos);
+        bool hasU = (s.find('U') != std::string::npos);
+        if (hasQ && hasU) synergy += 10.0f;
 
-    // 5. TOXIC ASSETS (Liabilities)
-    // Q, V, U, W -> Negative intrinsic value
-    if (tile == 'Q') return -12.0; // Massive liability
-    if (tile == 'V') return -5.0;
-    if (tile == 'U') return -4.0;
-    if (tile == 'W') return -3.0;
-    if (tile == 'G') return -3.0;
+        // B. LINGUISTIC CLUSTERS
+        if (s.find("ING") != std::string::npos) synergy += 12.0f;
+        else if (s.find("IN") != std::string::npos) synergy += 4.0f;
 
-    // Standard Commodities
-    return 1.0;
-}
+        if (s.find("ER") != std::string::npos) synergy += 5.0f;
+        if (s.find("EST") != std::string::npos) synergy += 6.0f;
 
-double Treasurer::calculateSynergy(const std::vector<char>& tiles) {
-    double synergy = 0.0;
-    string rackStr = "";
-    for(char c : tiles) rackStr += c;
-    sort(rackStr.begin(), rackStr.end());
+        // C. CANNIBALIZATION (Duplicates)
+        std::map<char, int> counts;
+        for (char c : leave) counts[c]++;
 
-    // A. HEDGING (Neutralizing Toxic Assets)
-    bool hasQ = (rackStr.find('Q') != string::npos);
-    bool hasU = (rackStr.find('U') != string::npos);
-
-    if (hasQ && hasU) {
-        synergy += 8.0; // The 'U' insures the 'Q'. Liability (-12) becomes Bond (-4 + 8 = +4).
-    }
-
-    // B. CORRELATION (Positive Synergy)
-    if (rackStr.find("ING") != string::npos) synergy += 12.0;
-    else if (rackStr.find("IN") != string::npos) synergy += 4.0;
-
-    if (rackStr.find("ER") != string::npos) synergy += 6.0;
-    if (rackStr.find("EST") != string::npos) synergy += 6.0;
-
-    // C. CANNIBALIZATION (Negative Synergy / Duplicate Penalty)
-    // "Sector Concentration Risk"
-    map<char, int> counts;
-    for(char c : tiles) counts[c]++;
-
-    for(auto const& [key, val] : counts) {
-        if (val > 1) {
-            // Penalty scales exponentially with duplication: 2->-3, 3->-9
-            if (key == 'E' || key == 'A' || key == 'I') {
-                synergy -= pow(val, 2.0);
-            } else {
-                synergy -= (pow(val, 2.5)); // Heavy penalty for duplicate consonants
+        for (auto const& [key, val] : counts) {
+            if (val > 1) {
+                // Non-linear penalty
+                synergy -= std::pow((float)val, 2.0f);
             }
         }
+
+        // D. PORTFOLIO BALANCE
+        int vowels = 0;
+        const std::string vChars = "AEIOU";
+        for (char c : leave) {
+            if (vChars.find(c) != std::string::npos) vowels++;
+        }
+        int consonants = (int)leave.size() - vowels;
+
+        if (vowels == 0 && consonants > 0) synergy -= 6.0f;
+        if (consonants == 0 && vowels > 0) synergy -= 6.0f;
+
+        return synergy;
     }
 
-    // Balance Penalty (Vowel/Consonant Ratio)
-    int vowels = 0;
-    for(char c : tiles) if(string("AEIOU").find(c) != string::npos) vowels++;
-    int consonants = tiles.size() - vowels;
-
-    if (vowels == 0 && consonants > 0) synergy -= 5.0;
-    if (consonants == 0 && vowels > 0) synergy -= 5.0;
-
-    return synergy;
-}
-
-double Treasurer::calculateVolatility(const std::vector<char>& tiles) {
-    // Measures the "Risk" of the rack.
-    // High Volatility = High Dispersion of outcomes (Bingo or Zero).
-    // Low Volatility = Consistent Scoring.
-
-    double vol = 0.0;
-    for(char c : tiles) {
-        if (c == '?') vol += 10.0; // Infinite Variance
-        if (string("QZJX").find(c) != string::npos) vol += 8.0; // Binary outcomes
+    float Treasurer::calculate_rack_volatility(const std::vector<char>& leave) {
+        float vol = 0.0f;
+        const std::string volChars = "QZJX";
+        for (char c : leave) {
+            if (c == '?') vol += 10.0f;
+            if (volChars.find(c) != std::string::npos) vol += 8.0f;
+        }
+        return vol;
     }
-    return vol;
-}
 
-double Treasurer::getGamma(int scoreDiff) {
-    // DYNAMIC RISK AVERSION
+    float Treasurer::calculate_market_volatility(const std::vector<Tile>& bag) {
+        if (bag.empty()) return 0.0f;
 
-    // Scenario A: Leading (> 60 pts) -> Pension Fund
-    // We want to MINIMIZE volatility.
-    // High positive Gamma penalizes risky tiles.
-    if (scoreDiff > 60) return 1.5;
-    if (scoreDiff > 30) return 0.8;
+        double sum = 0.0;
+        double sq_sum = 0.0;
 
-    // Scenario B: Trailing (> 60 pts) -> Distressed Hedge Fund
-    // We want to MAXIMIZE volatility.
-    // Negative Gamma turns Risk (Volatility) into a Bonus.
-    if (scoreDiff < -60) return -1.2;
-    if (scoreDiff < -30) return -0.5;
+        // Iterating standard vector<Tile>
+        for (const auto& t : bag) {
+            double val = (double)Mechanics::getPointValue(t.letter);
+            sum += val;
+            sq_sum += (val * val);
+        }
 
-    // Scenario C: Competitive -> Balanced Fund
-    return 0.1; // Slight preference for stability
-}
+        double n = (double)bag.size();
+        double mean = sum / n;
+        double variance = (sq_sum / n) - (mean * mean);
 
+        // Normalize (StdDev 0-3 range -> 0-1 range approx)
+        return (float)(std::sqrt(variance) / 2.5);
+    }
+
+    float Treasurer::calculate_gamma(int scoreDiff) {
+        // LEADING -> Risk Averse
+        if (scoreDiff > 60) return 1.5f;
+        if (scoreDiff > 30) return 0.8f;
+
+        // TRAILING -> Risk Seeking
+        if (scoreDiff < -60) return -1.2f;
+        if (scoreDiff < -30) return -0.5f;
+
+        return 0.2f;
+    }
+
+void Treasurer::report_equity(const GameState& state, const Move& move, int moveScore) const {
+        // RECONSTRUCT LOGIC FOR REPORTING
+        // (We duplicate the read-only logic to avoid altering the core calculation signature)
+
+        std::map<char, int> rackLedger;
+        for (const auto& t : state.players[state.currentPlayerIndex].rack) rackLedger[t.letter]++;
+
+        int r = move.row; int c = move.col;
+        int dr = move.horizontal ? 0 : 1;
+        int dc = move.horizontal ? 1 : 0;
+
+        for (int i = 0; i < 15; i++) {
+            char letter = move.word[i];
+            if (letter == '\0') break;
+            if (state.board[r][c] == ' ') {
+                bool isBlank = (letter >= 'a' && letter <= 'z');
+                if (isBlank) {
+                    if (rackLedger['?'] > 0) rackLedger['?']--;
+                } else {
+                    char upperC = letter;
+                    if (rackLedger[upperC] > 0) rackLedger[upperC]--;
+                    else if (rackLedger['?'] > 0) rackLedger['?']--;
+                }
+            }
+            r += dr; c += dc;
+        }
+
+        std::vector<char> leave;
+        for (auto const& [key, val] : rackLedger) {
+            for (int k = 0; k < val; k++) leave.push_back(key);
+        }
+
+        auto* mutThis = const_cast<Treasurer*>(this);
+
+        int bagSize = (int)state.bag.size();
+        int scoreDiff = state.players[state.currentPlayerIndex].score - state.players[1 - state.currentPlayerIndex].score;
+
+        float fundamentals = 0.0f;
+        for (char tile : leave) fundamentals += mutThis->get_fundamental_value(tile, bagSize);
+
+        float synergy = mutThis->calculate_synergy(leave);
+        float rackRisk = mutThis->calculate_rack_volatility(leave);
+        float marketRisk = mutThis->calculate_market_volatility(state.bag);
+        float totalRisk = rackRisk * (1.0f + marketRisk);
+        float gamma = mutThis->calculate_gamma(scoreDiff);
+        float equity = (fundamentals + synergy) - (gamma * totalRisk);
+
+        std::cout << "[TREASURER REPORT] Move: " << move.word << " (" << moveScore << " pts)"
+                  << "\n  > Leave: ";
+        for(char c : leave) std::cout << c;
+        std::cout << "\n  > Fundamentals: " << std::fixed << std::setprecision(2) << fundamentals
+                  << " | Synergy: " << synergy
+                  << "\n  > Risk (Rack/Mkt): " << rackRisk << " / " << marketRisk
+                  << " | Gamma: " << gamma
+                  << "\n  > EQUITY ADJUSTMENT: " << equity
+                  << " (NAV: " << (moveScore + equity) << ")"
+                  << std::endl;
+    }
 }

@@ -1,5 +1,7 @@
 #include "../../include/engine/game_director.h"
 #include "../../include/interface/renderer.h"
+#include "../../include/engine/mechanics.h"
+#include "../../include/engine/referee.h"
 #include "../../include/choices.h" // For extractMainWord/crossWordList helpers
 #include <iostream>
 #include <thread>
@@ -27,7 +29,11 @@ void GameDirector::initGame() {
     // 1. Clear State (Using Mechanics/Helpers)
     clearLetterBoard(state.board);
     clearBlankBoard(state.blanks);
-    state.bag = createStandardTileBag();
+
+    // OPTIMIZATION: Reuse memory instead of reallocation
+    // Old line: state.bag = createStandardTileBag();
+    refillStandardTileBag(state.bag);
+
     shuffleTileBag(state.bag);
 
     for(int i=0; i<2; i++) {
@@ -39,7 +45,7 @@ void GameDirector::initGame() {
     state.currentPlayerIndex = 0;
 
     lastMove.reset();
-    snapshot = state.clone();
+    snapshot = state;
     canChallenge = false;
 }
 
@@ -195,7 +201,7 @@ void GameDirector::executePlay(int pIdx, Move& move) {
             log("Player " + to_string(pIdx+1) + " Played: " + move.word + " (" + to_string(result.score) + ")");
         }
     } else {
-        if (config.verbose) log("Invalid Move: " + result.message);
+        if (config.verbose) log(string("Invalid Move: ") + result.message);
         state.players[pIdx].passCount++;
     }
 }

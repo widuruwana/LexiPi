@@ -28,8 +28,15 @@ public:
 
     void markSeen(char c) {
         int idx = -1;
-        if (c == '?') idx = 26;
-        else if (isalpha(c)) idx = toupper(c) - 'A';
+
+        // 1. Explicitly check for Blank Representations
+        if (c == '?' || (c >= 'a' && c <= 'z')) {
+            idx = 26; // Index 26 is the Blank slot
+        }
+        // 2. Otherwise, assume Uppercase/Natural
+        else if (c >= 'A' && c <= 'Z') {
+            idx = c - 'A';
+        }
 
         if (idx >= 0 && idx < 27) {
             if (counts[idx] > 0) {
@@ -47,8 +54,8 @@ public:
 
     int getUnseenCount(char c) const {
         int idx = -1;
-        if (c == '?') idx = 26;
-        else if (isalpha(c)) idx = toupper(c) - 'A';
+        if (c == '?' || (c >= 'a' && c <= 'z')) idx = 26;
+        else if (c >= 'A' && c <= 'Z') idx = c - 'A';
 
         if (idx >= 0 && idx < 27) return counts[idx];
         return 0;

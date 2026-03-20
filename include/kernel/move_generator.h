@@ -3,13 +3,13 @@
 #include <vector>
 #include <string>
 #include "../engine/board.h"
-#include "../../include/engine/rack.h"
-#include "../../include/fast_constraints.h"
+#include "../engine/rack.h"
+#include "fast_constraints.h"
 #include "../engine/dictionary.h"
 
 using namespace std;
 
-namespace spectre {
+namespace kernel {
 
 // Lightweight Move Structure (POD - Plain Old Data)
 // Designed to be created on the stack with zero overhead.
@@ -29,10 +29,22 @@ public:
     // -------------------------------------------------------------------------
     // Accepts int[27] directly. Zero allocations.
     // -------------------------------------------------------------------------
-    template <typename Consumer>
-    static void generate_raw(const LetterBoard &board, int* rackCounts, Dictionary &dict, Consumer& consumer) {
+    // 1. LOGIC FIX: Handle Lowercase on Board
+    // Previously, 'a' returned 30, acting as a wall. Now it acts as a valid anchor.
+    static inline int safeIdx(char c) {
+        if (c >= 'a' && c <= 'z') return c - 'a';
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        return 30; // Garbage (skipped by logic)
+    }
 
-        // 1. Transpose Board (Stack Allocation)
+    template <typename Consumer>
+    static void generate_raw(const LetterBoard &board, int* rackCounts, Dictionary &dict,
+                             Consumer& consumer) {
+        // 1. STACK ALLOCATION (Zero-Cost, L1 Cache Hot)
+        RowConstraint rows[15];
+        RowConstraint cols[15];
+
+        // 2. Transpose Board (Stack Allocation)
         LetterBoard transposed;
         for (int r = 0; r < 15; r++) {
             for (int c = 0; c < 15; c++) {
@@ -40,27 +52,28 @@ public:
             }
         }
 
-        // 2. Pre-calculate Constraints (Stack Allocation)
-        RowConstraint constraintsH[15];
-        RowConstraint constraintsV[15];
+        // 3. GENERATE FRESH (Unconditional)
+        // No dirty bits. No stale data. Just pure speed.
         for(int i=0; i<15; i++) {
-            constraintsH[i] = ConstraintGenerator::generateRowConstraint(board, i);
-            constraintsV[i] = ConstraintGenerator::generateRowConstraint(transposed, i);
+            rows[i] = ConstraintGenerator::generateRowConstraint(board, i);
+            cols[i] = ConstraintGenerator::generateRowConstraint(transposed, i);
         }
 
-        // 3. Execute Search
         int localRack[27];
 
+        // 4. SEARCH
         // Horizontal
         for (int r = 0; r < 15; r++) {
+            if (rows[r].anchorMask == 0) continue;
             memcpy(localRack, rackCounts, 27 * sizeof(int));
-            if (!genMovesGADDAG(r, board, localRack, constraintsH[r], true, dict, consumer)) return;
+            if (!genMovesGADDAG(r, board, localRack, rows[r], true, dict, consumer)) return;
         }
 
         // Vertical
         for (int r = 0; r < 15; r++) {
+            if (cols[r].anchorMask == 0) continue;
             memcpy(localRack, rackCounts, 27 * sizeof(int));
-            if (!genMovesGADDAG(r, transposed, localRack, constraintsV[r], false, dict, consumer)) return;
+            if (!genMovesGADDAG(r, transposed, localRack, cols[r], false, dict, consumer)) return;
         }
     }
 
@@ -68,11 +81,13 @@ public:
     // STANDARD INTERFACE (TileRack Wrapper)
     // -------------------------------------------------------------------------
     template <typename Consumer>
-    static void generate_custom(const LetterBoard &board, const TileRack &rack, Dictionary &dict, Consumer& consumer) {
+    static void generate_custom(const LetterBoard &board, const TileRack &rack, Dictionary &dict,
+                                Consumer& consumer) {
         int rackCounts[27] = {0};
         for (const Tile& t : rack) {
             if (t.letter == '?') rackCounts[26]++;
-            else if (isalpha(t.letter)) rackCounts[toupper(t.letter) - 'A']++;
+            else if (t.letter >= 'A' && t.letter <= 'Z') rackCounts[t.letter - 'A']++;
+            else if (t.letter >= 'a' && t.letter <= 'z') rackCounts[t.letter - 'a']++;
         }
         generate_raw(board, rackCounts, dict, consumer);
     }
@@ -105,38 +120,34 @@ private:
     // Entry point for a specific row
     template <typename Consumer>
     static bool genMovesGADDAG(int row, const LetterBoard &board, int *rackCounts,
-                              const RowConstraint &constraints, bool isHorizontal,
-                              Dictionary& dict, Consumer& consumer) {
+                          const RowConstraint &constraints, bool isHorizontal,
+                          Dictionary& dict, Consumer& consumer) {
 
-        // Calculate what is already on the board in this row
+        // 1. READ ANCHORS DIRECTLY (Zero Setup)
+        uint16_t anchorMask = constraints.anchorMask;
+
+        // 2. Fast Pruning Setup
         uint32_t boardRowMask = 0;
         for(int c = 0; c < 15; c++) {
-            if(board[row][c] != ' ') boardRowMask |= (1 << (board[row][c] - 'A'));
+            if(board[row][c] != ' ') {
+                int sIdx = safeIdx(board[row][c]); // USE SAFE IDX HERE TOO!
+                if (sIdx != 30) boardRowMask |= (1 << sIdx);
+            }
         }
 
-        // Initial Pruning Mask: Rack + Board + Separator
         uint32_t myRackMask = getRackMask(rackCounts);
         uint32_t pruningMask = myRackMask | boardRowMask | (1 << SEPERATOR);
+        char wordBuf[20];
 
-        char wordBuf[20]; // Recursive word buffer
-
-        // Iterate over potential Anchors
-        for (int c = 0; c < 15; c++) {
-            if (board[row][c] != ' ') continue; // Anchors must be empty
-
-            // Definition of an Anchor: Adjacent to existing tile or specific constraints
-            bool isAnchor = false;
-            if (c > 0 && board[row][c-1] != ' ') isAnchor = true;
-            else if (c < 14 && board[row][c+1] != ' ') isAnchor = true;
-            else if (constraints.masks[c] != MASK_ANY) isAnchor = true;
-            else if (row == 7 && c == 7) isAnchor = true; // Start square
-
-            if (!isAnchor) continue;
+        // 3. TZCNT Loop
+        while (anchorMask) {
+            int c = std::countr_zero(anchorMask);
 
             wordBuf[0] = '\0';
-            // Start GADDAG traversal (Going Left)
             if (!goLeft(row, c, dict.rootIndex, constraints, myRackMask, pruningMask,
                 rackCounts, wordBuf, 0, board, isHorizontal, c, dict, consumer)) return false;
+
+            anchorMask &= ~(1 << c);
         }
         return true;
     }
@@ -175,8 +186,8 @@ private:
 
         if (boardChar != ' ') {
             // Existing Tile: Must match
-            int charIdx = boardChar - 'A';
-            if (!((effectiveMask >> charIdx) & 1)) return true;
+            int charIdx = safeIdx(boardChar);
+            if (charIdx == 30 || !((effectiveMask >> charIdx) & 1)) return true;
 
             wordBuf[wordLen] = boardChar;
             return goLeft(row, col - 1, dict.getChild(node, charIdx), constraints, rackMask, pruningMask,
@@ -184,6 +195,11 @@ private:
         } else {
             // Empty Square: Place Tile
             effectiveMask &= (rackMask & boardMask); // Filter by Rack and Constraints
+
+            // 3. HARDWARE SAFETY LOCK
+            // Ensure we NEVER process bits >= 26 (Separator/Garbage) as tiles.
+            // This physically prevents rackCounts[30] overflow.
+            effectiveMask &= 0x03FFFFFF;
 
             while (effectiveMask) {
                 int i = __builtin_ctz(effectiveMask); // Find next available letter
@@ -255,9 +271,9 @@ private:
         uint32_t effectiveMask = dict.nodes[node].edgeMask;
 
         if (boardChar != ' ') {
-            // Existing Tile
-            int charIdx = boardChar - 'A';
-            if (!((effectiveMask >> charIdx) & 1)) return true;
+            // Existing Tile (SAFE VERSION)
+            int charIdx = safeIdx(boardChar);
+            if (charIdx == 30 || !((effectiveMask >> charIdx) & 1)) return true;
 
             wordBuf[wordLen] = boardChar;
             return goRight(row, col + 1, dict.getChild(node, charIdx), constraints, rackMask, pruningMask,
@@ -265,6 +281,12 @@ private:
         } else {
             // Empty Square
             effectiveMask &= (rackMask & boardMask);
+
+            // 3. HARDWARE SAFETY LOCK
+            // Ensure we NEVER process bits >= 26 (Separator/Garbage) as tiles.
+            // This physically prevents rackCounts[30] overflow.
+            effectiveMask &= 0x03FFFFFF;
+
             while (effectiveMask) {
                 int i = __builtin_ctz(effectiveMask);
                 char letter = (char)('A' + i);

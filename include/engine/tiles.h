@@ -14,6 +14,9 @@ void printTileBag(const TileBag &bag, const vector<Tile> &opponentRack, bool rev
 // Shuffle the tile bag
 void shuffleTileBag(TileBag &bag);
 
+// Refill function to recycle memory
+void refillStandardTileBag(TileBag& bag);
+
 
 
 

@@ -25,7 +25,8 @@ int main() {
         cout << "=========================================\n";
         cout << "           Welcome to LEXI_PI\n";
         cout << "         Terminal Crossword Game\n";
-        cout << "               Version 0.4\n";
+        cout << "               Version 0.5\n\n";
+        cout << "             GADDAG - STABLE\n";
         cout << "=========================================\n\n";
 
         cout << "(1) Player vs Player\n"

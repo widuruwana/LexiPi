@@ -18,24 +18,44 @@
 #include "../../../include/modes/Home/home.h"
 #include "../../../include/interface/renderer.h"
 
-#include "../../../include/engine/state.h"
-#include "../../../include/engine/referee.h"
-#include "../../../include/engine/mechanics.h"
-
 using namespace std;
 
-// Wrapper for threading
+// Wrapper for running a single game (Used only for singular execution if needed)
 MatchResult runSingleGame(AIStyle s1, AIStyle s2, int id, bool verbose) {
     AIPlayer bot1(s1);
     AIPlayer bot2(s2);
     Board b = createBoard();
+    GameDirector::Config cfg;
+    cfg.verbose = verbose;
+    cfg.allowChallenge = false;
+    GameDirector director(&bot1, &bot2, b, cfg);
+    return director.run(id);
+}
+
+// OPTIMIZED BATCH: Instantiates bots ONCE and reuses them
+vector<MatchResult> runBatch(AIStyle s1, AIStyle s2, int startId, int count, bool verbose) {
+    // 1. ALLOCATE ONCE (On Stack) - Massive performance gain
+    AIPlayer bot1(s1);
+    AIPlayer bot2(s2);
+    Board b = createBoard(); // Check if createBoard allocates; reusing 'b' is safer.
 
     GameDirector::Config cfg;
     cfg.verbose = verbose;
-    cfg.allowChallenge = false; // Speed optimization for Simulation
+    cfg.allowChallenge = false;
 
+    // 2. Create Director ONCE
     GameDirector director(&bot1, &bot2, b, cfg);
-    return director.run(id);
+
+    vector<MatchResult> results;
+    results.reserve(count);
+
+    // 3. REUSE EVERYTHING
+    for(int i = 0; i < count; i++) {
+        // director.run() resets the game state internally.
+        // We do NOT call runSingleGame() here because that would re-allocate memory.
+        results.push_back(director.run(startId + i));
+    }
+    return results;
 }
 
 void runAiAi() {
@@ -67,27 +87,50 @@ void runAiAi() {
 
     auto startTotal = chrono::high_resolution_clock::now();
 
+    // =======================================================
     // PARALLEL EXECUTION
-    // utilize std::async to launch games on available cores
-    vector<future<MatchResult>> futures;
-    int batchSize = thread::hardware_concurrency(); // likely 6 on your Ryzen
-    if (batchSize == 0) batchSize = 4;
+    // =======================================================
+    int numThreads = thread::hardware_concurrency();
+    if (numThreads == 0) numThreads = 4;
 
-    cout << "Launching " << numGames << " games across " << batchSize << " threads..." << endl;
+    cout << "Launching " << numGames << " games across " << numThreads << " threads (Raw Threading)..." << endl;
 
-    for (int i = 0; i < numGames; i++) {
-        futures.push_back(async(launch::async, runSingleGame, styleP1, styleP2, i + 1, verbose));
+    // DATA STRUCTURES FOR RAW THREADS
+    vector<thread> threads;
+    vector<vector<MatchResult>> allResults(numThreads); // Pre-allocate result buckets
+
+    int gamesPerThread = numGames / numThreads;
+    int currentId = 1;
+
+    for (int t = 0; t < numThreads; t++) {
+        int count = gamesPerThread + (t < (numGames % numThreads) ? 1 : 0);
+
+        if (count > 0) {
+            // Launch Thread and write to specific slot in 'allResults'
+            // We use a lambda to wrap the work
+            threads.emplace_back([&, t, currentId, count]() {
+                allResults[t] = runBatch(styleP1, styleP2, currentId, count, verbose);
+            });
+            currentId += count;
+        }
     }
 
+    // WAIT FOR COMPLETION
+    for (auto& t : threads) {
+        if (t.joinable()) t.join();
+    }
+
+    // AGGREGATE RESULTS
     vector<MatchResult> results;
-    for (auto &f : futures) {
-        results.push_back(f.get());
+    results.reserve(numGames);
+    for (const auto& batch : allResults) {
+        results.insert(results.end(), batch.begin(), batch.end());
     }
 
     auto endTotal = chrono::high_resolution_clock::now();
     double elapsedMs = chrono::duration_cast<chrono::milliseconds>(endTotal-startTotal).count();
 
-    // Statistics
+    // Statistics (Unchanged)
     long long totalP1 = 0, totalP2 = 0;
     int winsP1 = 0, winsP2 = 0, draws = 0;
 
@@ -122,4 +165,3 @@ void runAiAi() {
     Renderer::waitForQuitKey();
     Renderer::clearScreen();
 }
-

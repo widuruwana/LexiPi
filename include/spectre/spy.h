@@ -22,6 +22,9 @@ namespace spectre {
         void updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const TileBag& bag);
         std::vector<char> generateWeightedRack() const;
 
+        // [FIX] Expose the raw pool for direct Endgame access
+        const std::vector<char>& getUnseenPool() const;
+
     private:
         std::vector<char> unseenPool;
         std::vector<Particle> particles;

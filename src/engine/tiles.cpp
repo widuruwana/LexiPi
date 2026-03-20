@@ -6,11 +6,20 @@
 #include <algorithm>
 #include <random>
 #include <ctime>
+#include <thread>
 
 using namespace std;
 
 TileBag createStandardTileBag() {
     TileBag bag;
+    bag.reserve(100); // Optimization: Reserve memory to avoid reallocations
+    refillStandardTileBag(bag);
+    return bag;
+}
+
+// NEW: Zero-Allocation Refill
+void refillStandardTileBag(TileBag& bag) {
+    bag.clear();
 
     /*C++ LEARNING
         [&bag] means the lambda wants to acces to the variable bag and it wants access by reference.
@@ -21,10 +30,10 @@ TileBag createStandardTileBag() {
         ex: addTiles('A', 1, 9) means 9 tiles of letter A each worth 1 point are added to the bag.
         bag.push_back(Tile{'A', 1}); x 9 times
      */
-    auto addTiles = [&bag](char letter, int points, int count) {
-        for (int i = 0; i < count; i++) {
-            bag.push_back(Tile{letter, points});
-        }
+
+    // Helper to add without reallocation
+    auto addTiles = [&](char l, int p, int c) {
+        for(int i=0; i<c; i++) bag.push_back({l, p});
     };
 
     // Letter distribution:
@@ -73,12 +82,36 @@ TileBag createStandardTileBag() {
 
     // Blanks: use '?' as the letter, 0 points
     addTiles('?', 0, 2);
-
-    return bag;
 }
+
+// Lightweight Xorshift RNG (Much faster than mt19937)
+struct FastRNG {
+    uint32_t state;
+    FastRNG() {
+        // Seed with time + thread ID to ensure parallel randomness
+        size_t seed = std::hash<std::thread::id>{}(std::this_thread::get_id()) +
+                      std::chrono::high_resolution_clock::now().time_since_epoch().count();
+        state = static_cast<uint32_t>(seed);
+        if (state == 0) state = 0xDEADBEEF;
+    }
+
+    using result_type = uint32_t;
+    static constexpr result_type min() { return 0; }
+    static constexpr result_type max() { return UINT32_MAX; }
+
+    uint32_t operator()() {
+        uint32_t x = state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        return state = x;
+    }
+};
 
 //Suffels the tile bag (use once at game start)
 void shuffleTileBag(TileBag &bag) {
-    static mt19937 rng(static_cast<unsigned int>(time(nullptr)));
+    // Thread-local FastRNG. Initialized once per thread.
+    // No locks, no heavyweight constructors.
+    thread_local FastRNG rng;
     shuffle(bag.begin(), bag.end(), rng);
 }

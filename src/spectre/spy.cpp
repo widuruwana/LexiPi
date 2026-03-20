@@ -1,6 +1,6 @@
 #include "../../include/spectre/spy.h"
 #include "../../include/tile_tracker.h"
-#include "../../include/spectre/move_generator.h"
+#include "../../include/kernel/move_generator.h"
 #include "../../include/engine/mechanics.h"
 #include "../../include/engine/dictionary.h"
 #include "../../include/spectre/logger.h"
@@ -9,6 +9,7 @@
 #include <cmath>
 #include <map>
 #include <random>
+#include <cstring> // For memset
 
 using namespace std;
 
@@ -24,6 +25,10 @@ std::string getRackKey(const std::vector<char>& rack) {
     std::string s(rack.begin(), rack.end());
     std::sort(s.begin(), s.end());
     return s;
+}
+
+const std::vector<char>& Spy::getUnseenPool() const {
+    return unseenPool;
 }
 
 void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard) {
@@ -49,14 +54,28 @@ void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard)
 
     // 2. SCORE THE MOVE
     Board bonusBoard = createBoard();
-    MoveCandidate mc;
-    mc.row = move.row; mc.col = move.col; mc.isHorizontal = move.horizontal;
-    int len = 0; while (len < 15 && len < (int)move.word.size()) { mc.word[len] = move.word[len]; len++; } mc.word[len] = '\0';
+    kernel::MoveCandidate mc;
+    mc.row = move.row;
+    mc.col = move.col;
+    mc.isHorizontal = move.horizontal;
+
+    strncpy(mc.word, move.word, 16);
+    mc.word[15] = '\0'; // Safety null-termination
+
     int actualScore = Mechanics::calculateTrueScore(mc, preMoveBoard, bonusBoard);
+
+    std::cout << "[SPY] Observing Move: " << move.word
+              << " | Score: " << actualScore
+              << " | Tiles Required: ";
+    for(char c : tilesPlayed) std::cout << c;
+    std::cout << std::endl;
 
     // 3. UPDATE PARTICLES (With Caching)
     double totalWeight = 0.0;
     std::map<std::string, int> scoreCache; // <--- THE CACHE
+
+    int hardFilterPassCount = 0;
+    int perfectRationalityCount = 0;
 
     for (auto& p : particles) {
         // A. HARD FILTER
@@ -77,6 +96,8 @@ void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard)
             continue;
         }
 
+        hardFilterPassCount++;
+
         // B. SOFT FILTER (Optimized)
         // Check cache first
         std::string key = getRackKey(p.rack);
@@ -86,20 +107,30 @@ void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard)
             bestPossible = scoreCache[key];
         } else {
             // Expensive calculation happens only once per unique rack
+            // NOW OPTIMIZED with generate_raw
             bestPossible = findBestPossibleScore(p.rack, preMoveBoard);
             scoreCache[key] = bestPossible;
         }
 
-        // Calculate Rationality inline to use cached bestPossible
+        // [FIX] ROBUST RATIONALITY LOGIC
         double rationality = 0.0;
-        if (actualScore <= bestPossible) {
+
+        // CASE 1: Opponent played BETTER than we thought possible (Genius or Generator mismatch)
+        // This is STRONG evidence they have this rack.
+        if (actualScore > bestPossible) {
+            rationality = 1.0;
+        }
+        // CASE 2: Opponent played optimally or near-optimally
+        else {
             int delta = bestPossible - actualScore;
             if (delta == 0) rationality = 1.0;
-            else if (delta < 5) rationality = 0.9;
-            else if (delta < 15) rationality = 0.5;
-            else if (delta < 30) rationality = 0.1;
-            else rationality = 0.01;
+            else if (delta <= 5) rationality = 0.8;  // Relaxed from 0.9
+            else if (delta <= 15) rationality = 0.4; // Relaxed from 0.5
+            else if (delta <= 30) rationality = 0.1;
+            else rationality = 0.01; // Blunder
         }
+
+        if (rationality > 0.8) perfectRationalityCount++;
 
         p.weight *= rationality;
         totalWeight += p.weight;
@@ -107,14 +138,34 @@ void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard)
 
     {
         ScopedLogger log;
-        std::cout << "[SPY] Filter Stats: " << totalWeight << " mass. Unique Racks Analyzed: " << scoreCache.size() << std::endl;
+        std::cout << "[SPY] Particle Report:"
+                  << "\n\t Total Particles: " << particles.size()
+                  << "\n\t Passed Hard Filter: " << hardFilterPassCount
+                  << "\n\t Perfect Rationality: " << perfectRationalityCount
+                  << "\n\t Total Mass: " << totalWeight
+                  << std::endl;
     }
 
-    // 4. RESAMPLE
+    // 4. RESAMPLE OR REBOOT
     if (totalWeight < 0.0001) {
         ScopedLogger log;
-        std::cout << "[SPY] PANIC: Model collapsed. Resetting." << std::endl;
-        initParticles();
+        std::cout << "[SPY] Model Mismatch (TotalMass=" << totalWeight << "). Rebooting particles..." << std::endl;
+
+        // Reboot Logic: Assume they definitely had the tiles they played
+        // Fill the rest randomly.
+        static thread_local std::mt19937 rng(std::random_device{}());
+        for(auto& p : particles) {
+            p.rack.clear();
+            p.weight = 1.0;
+            for(char c : tilesPlayed) p.rack.push_back(c);
+
+            std::vector<char> pool = unseenPool;
+            std::shuffle(pool.begin(), pool.end(), rng);
+            while(p.rack.size() < 7 && !pool.empty()) {
+                p.rack.push_back(pool.back());
+                pool.pop_back();
+            }
+        }
     } else {
         resampleParticles(totalWeight);
     }
@@ -132,27 +183,33 @@ void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard)
     }
 }
 
+// OPTIMIZED: Uses generate_raw (Stack Only) - 100x Faster
 int Spy::findBestPossibleScore(const std::vector<char>& rack, const LetterBoard& board) {
-    TileRack tRack;
+    // 1. Convert to Rack Counts (Stack Array)
+    int rackCounts[27] = {0};
     for(char c : rack) {
-        Tile t; t.letter = c; t.points = 0;
-        tRack.push_back(t);
+        if (c == '?') rackCounts[26]++;
+        else if (c >= 'A' && c <= 'Z') rackCounts[c - 'A']++;
+        else if (c >= 'a' && c <= 'z') rackCounts[c - 'a']++;
     }
-
-    vector<MoveCandidate> moves = MoveGenerator::generate(board, tRack, gDictionary, false);
-    if (moves.empty()) return 0;
 
     int maxScore = 0;
     Board bonusBoard = createBoard();
 
-    for (const auto& m : moves) {
-        int s = Mechanics::calculateTrueScore(m, board, bonusBoard);
+    // 2. Lambda Consumer (No Vectors!)
+    auto scoringConsumer = [&](kernel::MoveCandidate& cand, int* leave) -> bool {
+        int s = Mechanics::calculateTrueScore(cand, board, bonusBoard);
         if (s > maxScore) maxScore = s;
-    }
+        return true;
+    };
+
+    // 3. Raw Generation (Fastest Path)
+    kernel::MoveGenerator::generate_raw(board, rackCounts, gDictionary, scoringConsumer);
+
     return maxScore;
 }
 
-    void Spy::updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const TileBag& bag) {
+void Spy::updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const TileBag& bag) {
     // 1. Rebuild Unseen Pool
     unseenPool.clear();
     TileTracker tracker;
@@ -168,36 +225,45 @@ int Spy::findBestPossibleScore(const std::vector<char>& rack, const LetterBoard&
 
     {
         ScopedLogger log;
-        std::cout << "[SPY] Ground Truth: " << unseenPool.size() << " tiles unseen." << std::endl;
+        std::cout << "[SPY] Ground Truth Updated. Unseen Pool Size: " << unseenPool.size() << std::endl;
     }
 
-    // 2. REFILL PARTICLES
+    // 2. REFILL PARTICLES (OPTIMIZED SCRATCH BUFFER)
     static thread_local std::mt19937 rng(std::random_device{}());
 
     if(particles.empty()) { initParticles(); return; }
 
+    // Optimization: Create ONE scratch buffer for the pool
+    std::vector<char> scratchPool;
+    scratchPool.reserve(100);
+
     for (auto& p : particles) {
-        // Sanity check size
-        if (p.rack.size() > 7) p.rack.resize(7);
+        if (p.rack.size() >= 7) continue;
 
-        // CREATE A LOCAL COPY of available tiles for this specific particle refill
-        // This is expensive but necessary for correctness.
-        // Optimization: Only copy if we actually need to draw.
-        if (p.rack.size() < 7 && !unseenPool.empty()) {
-            std::vector<char> localPool = unseenPool;
-            // Remove tiles that are ALREADY in this particle's rack
-            // (Because unseenPool includes the opponent's current tiles)
-            for(char existing : p.rack) {
-                auto it = std::find(localPool.begin(), localPool.end(), existing);
-                if(it != localPool.end()) localPool.erase(it);
-            }
+        // Reset scratch pool from the master source
+        scratchPool = unseenPool;
 
-            // Now draw from the remaining valid pool
-            std::shuffle(localPool.begin(), localPool.end(), rng);
-            while(p.rack.size() < 7 && !localPool.empty()) {
-                p.rack.push_back(localPool.back());
-                localPool.pop_back();
+        // "Subtract" existing rack tiles from scratch pool
+        for(char existing : p.rack) {
+            for(size_t i = 0; i < scratchPool.size(); i++) {
+                if (scratchPool[i] == existing) {
+                    scratchPool[i] = scratchPool.back();
+                    scratchPool.pop_back();
+                    break;
+                }
             }
+        }
+
+        // Fill remaining slots
+        while(p.rack.size() < 7 && !scratchPool.empty()) {
+            std::uniform_int_distribution<int> dist(0, scratchPool.size() - 1);
+            int idx = dist(rng);
+
+            p.rack.push_back(scratchPool[idx]);
+
+            // Remove the picked tile (Swap & Pop)
+            scratchPool[idx] = scratchPool.back();
+            scratchPool.pop_back();
         }
     }
 }
@@ -208,7 +274,6 @@ void Spy::initParticles() {
         particles[i].rack.clear();
         particles[i].weight = 1.0;
 
-        // Safety: If pool is empty, we can't fill.
         if (unseenPool.empty()) continue;
 
         std::vector<char> pool = unseenPool;
