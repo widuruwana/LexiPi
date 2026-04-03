@@ -35,8 +35,7 @@ namespace spectre {
 
         void initParticles();
 
-        // FIX: Added parameter to match implementation
-        void resampleParticles(double totalWeight);
+        void resample_particles();
     };
 
 }

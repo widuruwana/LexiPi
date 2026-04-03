@@ -55,7 +55,7 @@ namespace spectre {
 
         // Configuration
         const int TIME_BUDGET_MS = 18000; // 18 seconds (leave 2s buffer for other agents)
-        const double UCT_C = 35.0;       // Exploration constant
+        const float UCT_C = 1.41421356f;       // Exploration constant
         const double BIAS_WEIGHT = 1.0;  // Trust in Council
 
         // MCTS Phases

@@ -167,7 +167,7 @@ void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard)
             }
         }
     } else {
-        resampleParticles(totalWeight);
+        resample_particles();
     }
 
     // 5. TRANSITION
@@ -284,29 +284,57 @@ void Spy::initParticles() {
     }
 }
 
-void Spy::resampleParticles(double totalWeight) {
-    std::vector<Particle> newParticles;
-    newParticles.reserve(PARTICLE_COUNT);
+void Spy::resample_particles() {
+    if (particles.empty()) return;
 
-    static thread_local std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<double> dist(0.0, totalWeight);
+    int num_particles = particles.size();
+    std::vector<Particle> new_particles;
+    new_particles.reserve(num_particles);
 
-    for (int i = 0; i < PARTICLE_COUNT; i++) {
-        double r = dist(rng);
-        double currentSum = 0.0;
-
-        for (const auto& p : particles) {
-            currentSum += p.weight;
-            if (currentSum >= r) {
-                newParticles.push_back(p);
-                break;
-            }
-        }
+    // 1. Calculate Total Weight
+    double total_weight = 0.0;
+    for (const auto& p : particles) {
+        total_weight += p.weight;
     }
 
-    // Normalize weights after resampling
-    for(auto& p : newParticles) p.weight = 1.0;
-    particles = newParticles;
+    // Failsafe: If all particles were crushed to 0 (e.g., impossible board state),
+    // we re-initialize uniformly rather than crashing.
+    if (total_weight <= 0.0) {
+        for (auto& p : particles) {
+            p.weight = 1.0 / num_particles;
+        }
+        return;
+    }
+
+    // 2. Systematic Resampling Setup
+    double step = total_weight / num_particles;
+
+    // Generate a single random starting point in the first interval
+    static thread_local std::mt19937 rng(std::random_device{}());
+    std::uniform_real_distribution<double> dist(0.0, step);
+    double r = dist(rng);
+
+    // 3. The Stratified Sweep (O(N) Time Complexity)
+    double c = particles[0].weight;
+    int i = 0;
+
+    for (int m = 0; m < num_particles; m++) {
+        double u = r + (m * step);
+
+        // Advance the pointer until the cumulative weight exceeds the current threshold
+        while (u > c && i < num_particles - 1) {
+            i++;
+            c += particles[i].weight;
+        }
+
+        // Clone the selected particle and reset its weight
+        Particle cloned_particle = particles[i];
+        cloned_particle.weight = 1.0 / num_particles; // Normalize new weights
+        new_particles.push_back(std::move(cloned_particle));
+    }
+
+    // 4. Commit the new generation
+    particles = std::move(new_particles);
 }
 
 std::vector<char> Spy::generateWeightedRack() const {

@@ -1,20 +1,24 @@
 #include "../../include/spectre/vanguard.h"
-#include "../../include/kernel/move_generator.h" // Needed for generate_raw
+#include "../../include/kernel/move_generator.h"
 #include "../../include/kernel/greedy_engine.h"
 #include "../../include/engine/mechanics.h"
-#include "../../include/engine/dictionary.h" // Needed for gDictionary
+#include "../../include/engine/dictionary.h"
 #include <cmath>
 #include <limits>
 #include <algorithm>
 #include <iostream>
 #include <cstring>
+#include <chrono>
 
 using namespace std::chrono;
 
 namespace spectre {
 
-    // --- INTERNAL HELPERS ---
+    // --- THE MATHEMATICAL CONSTANT FIX ---
+    // Scaled specifically for [0.0, 1.0] Win Probability bounds.
+    static const double UCT_C = 1.41421356;
 
+    // --- INTERNAL HELPERS ---
     bool is_game_over(const GameState& state) {
         if (!state.bag.empty()) return false;
         for (const auto& p : state.players) {
@@ -48,20 +52,18 @@ namespace spectre {
         // COUNCIL SORT (Heuristic Pre-Sorting)
         std::sort(root->untriedMoves.begin(), root->untriedMoves.end(),
             [&](const kernel::MoveCandidate& a, const kernel::MoveCandidate& b) {
-                double scoreA = consult_council(state, a);
-                double scoreB = consult_council(state, b);
-                return scoreA < scoreB;
+                double probA = consult_council(state, a);
+                double probB = consult_council(state, b);
+                return probA < probB;
             });
 
         // Debug Output
         std::cout << "\n[VANGUARD] --- HEURISTIC RANKING (PRE-SIMULATION) ---" << std::endl;
         int count = 0;
 
-        // Iterate backwards because we sorted ascending (best is at end)
         for (auto it = root->untriedMoves.rbegin(); it != root->untriedMoves.rend(); ++it) {
             if (count >= 5) break;
 
-            // Re-calculate components for display
             Move m;
             m.row = it->row; m.col = it->col; m.horizontal = it->isHorizontal;
             m.type = MoveType::PLAY;
@@ -71,16 +73,17 @@ namespace spectre {
             float topoScore = general.evaluate_topology(state, m);
             double topoBias = (topoScore - 0.5) * 40.0;
             float nav = treasurer.evaluate_equity(state, m, it->score);
-            float equity = nav - it->score; // Extract just the future value
+
+            int scoreDiff = state.players[state.currentPlayerIndex].score - state.players[1 - state.currentPlayerIndex].score;
+            float win_prob = treasurer.normalize_to_winprob(scoreDiff, nav + topoBias, state.bag.size());
 
             std::cout << "#" << (count + 1) << ": " << it->word
                       << " | Raw: " << it->score
-                      << " | Equity: " << (equity >= 0 ? "+" : "") << equity
-                      << " | Topo: " << (topoBias >= 0 ? "+" : "") << topoBias
-                      << " | FINAL: " << (nav + topoBias)
+                      << " | NAV: " << nav
+                      << " | TopoBias: " << (topoBias >= 0 ? "+" : "") << topoBias
+                      << " | Prior WinProb: " << (win_prob * 100.0f) << "%"
                       << std::endl;
 
-            // PRINT FULL REPORT FOR THE #1 MOVE
             if (count == 0) {
                 std::cout << "------------------------------------------" << std::endl;
                 treasurer.report_equity(state, m, it->score);
@@ -133,18 +136,16 @@ namespace spectre {
         std::strncpy(m.word, cand.word, 16);
         m.word[15] = '\0';
 
-        // 1. THE GENERAL (Topology)
         float topoScore = general.evaluate_topology(state, m);
-        // Scaling: 0.5 is neutral. Range approx -20 to +20.
         double topoBias = (topoScore - 0.5) * 40.0;
-
-        // 2. THE TREASURER (Finance)
-        // NAV = RawScore + Equity (Future Value)
         float nav = treasurer.evaluate_equity(state, m, cand.score);
 
-        // FIX: Do NOT subtract cand.score.
-        // We want the Council to rank moves by Total Value (Score + Equity + Topology)
-        return nav + topoBias;
+        // NORMALIZATION FIX: Convert Council's raw point evaluation into a prior Win Probability
+        int myScore = state.players[state.currentPlayerIndex].score;
+        int oppScore = state.players[1 - state.currentPlayerIndex].score;
+        int scoreDiff = myScore - oppScore;
+
+        return treasurer.normalize_to_winprob(scoreDiff, nav + topoBias, state.bag.size());
     }
 
     // --- MCTS PHASES ---
@@ -182,7 +183,7 @@ namespace spectre {
         Mechanics::applyMove(newState, m, move.score);
 
         auto child = std::make_unique<MCTSNode>(newState, move, node);
-        child->heuristicBias = consult_council(node->state, move);
+        child->heuristicBias = consult_council(node->state, move); // Bias is now [0.0, 1.0]
 
         MCTSNode* childPtr = child.get();
         node->children.push_back(std::move(child));
@@ -190,26 +191,19 @@ namespace spectre {
     }
 
     double Vanguard::simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard) {
-        // 1. SETUP
         GameState simState = startState.clone();
 
-        // 2. GUESS OPPONENT RACK (Spy)
         std::vector<char> oppRackChars = spy.generateWeightedRack();
         int oppRackCounts[27] = {0};
 
         for(char c : oppRackChars) {
-            // Build counts for generator
             if (c == '?') oppRackCounts[26]++;
             else if (isalpha(c)) oppRackCounts[toupper(c) - 'A']++;
         }
 
-        // Update sim state rack for Treasurer consistency
         std::vector<Tile> oppRackTiles;
         for(char c : oppRackChars) { Tile t; t.letter = c; t.points = 0; oppRackTiles.push_back(t); }
         simState.players[simState.currentPlayerIndex].rack = oppRackTiles;
-
-        // 3. OPPONENT RESPONSE (Rational Actor)
-        // We use generate_raw to find the move with the best NAV (Score + Equity)
 
         double bestNav = -10000.0;
 
@@ -220,9 +214,6 @@ namespace spectre {
             m.word[15] = '\0';
 
             int score = Mechanics::calculateTrueScore(cand, simState.board, bonusBoard);
-
-            // ASK THE TREASURER: What is this move really worth?
-            // Note: We evaluate equity on the state *before* the move, assuming the move is candidate 'm'
             float nav = treasurer.evaluate_equity(simState, m, score);
 
             if (nav > bestNav) {
@@ -231,21 +222,23 @@ namespace spectre {
             return true;
         };
 
-        // Use Raw Generator directly for speed (Zero Allocation)
         kernel::MoveGenerator::generate_raw(simState.board, oppRackCounts, gDictionary, opponentConsumer);
 
-        // 4. EVALUATE OUTCOME
-        // If opponent can't move, NAV is 0 (or strictly negative score equivalent).
-        // We return negative of their gain, because Minimax: My Gain = -(Opponent Gain)
-        if (bestNav == -10000.0) return 0.0; // Pass
+        if (bestNav == -10000.0) bestNav = 0.0; // Pass
 
-        return -(double)bestNav;
+        // NORMALIZATION FIX: Convert projected point differential into a Win Probability
+        int myScore = startState.players[startState.currentPlayerIndex].score;
+        int oppScore = startState.players[1 - startState.currentPlayerIndex].score;
+        int scoreDiff = myScore - oppScore;
+
+        // Spread = Current Diff - Opponent's expected gain
+        return treasurer.normalize_to_winprob(scoreDiff, -bestNav, startState.bag.size());
     }
 
     void Vanguard::backpropagate(MCTSNode* node, double score) {
         while (node) {
             node->visits++;
-            node->totalScore += score;
+            node->totalScore += score; // Score is now [0.0, 1.0] Win Probability
             node = node->parent;
         }
     }
@@ -253,8 +246,13 @@ namespace spectre {
     double Vanguard::calculate_uct_value(const MCTSNode* node) const {
         if (node->visits == 0) return 1e9;
 
-        double avgOutcome = (node->totalScore / node->visits) + node->moveLeadingTo.score;
+        // FIX: Removed the raw '+ node->moveLeadingTo.score' addition.
+        // avgOutcome is strictly [0.0, 1.0]
+        double avgOutcome = node->totalScore / node->visits;
+
         double exploration = UCT_C * std::sqrt(std::log(node->parent->visits) / node->visits);
+
+        // heuristicBias is also [0.0, 1.0]
         double bias = (node->heuristicBias * BIAS_WEIGHT) / (1 + node->visits);
 
         return avgOutcome + exploration + bias;
