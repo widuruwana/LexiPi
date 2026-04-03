@@ -59,6 +59,7 @@ namespace spectre {
 
         // 4. MCTS LOOP
         auto startTime = high_resolution_clock::now();
+        int mcts_iterations = 0; // We will track exactly how many simulations we run
 
         while (true) {
             auto now = high_resolution_clock::now();
@@ -73,20 +74,50 @@ namespace spectre {
 
             double result = simulate_rollout(leaf->state, spy, bonusBoard);
             backpropagate(leaf, result);
+            mcts_iterations++;
         }
 
-        // 5. SELECT ROBUST CHILD
-        MCTSNode* bestChild = nullptr;
-        int maxVisits = -1;
-
+        // 5. POST-SIMULATION ANALYSIS & REPORTING
+        // Sort children by the number of visits (The standard MCTS "Robust Child" selection)
+        std::vector<MCTSNode*> sorted_children;
         for (const auto& child : root->children) {
-            if (child->visits > maxVisits) {
-                maxVisits = child->visits;
-                bestChild = child.get();
-            }
+            sorted_children.push_back(child.get());
         }
 
-        return bestChild ? bestChild->moveLeadingTo : candidates.back();
+        std::sort(sorted_children.begin(), sorted_children.end(), [](MCTSNode* a, MCTSNode* b) {
+            return a->visits > b->visits;
+        });
+
+        // The Clean Telemetry Output
+        if (!sorted_children.empty()) {
+            std::cout << "\n======================================================\n";
+            std::cout << "[VANGUARD] MCTS Complete | Iterations: " << mcts_iterations
+                      << " | Time: " << TIME_BUDGET_MS << "ms\n";
+            std::cout << "------------------------------------------------------\n";
+            std::cout << " TOP 3 EVALUATED LINES (POST-SIMULATION)\n";
+            std::cout << "------------------------------------------------------\n";
+
+            for (size_t i = 0; i < std::min((size_t)3, sorted_children.size()); i++) {
+                MCTSNode* child = sorted_children[i];
+                kernel::MoveCandidate& mc = child->moveLeadingTo;
+
+                // Decode orientation so you know exactly WHERE the move is
+                char dir = mc.isHorizontal ? 'H' : 'V';
+
+                // Calculate actual MCTS win probability
+                double win_prob = (child->visits > 0) ? (child->totalScore / child->visits) : 0.0;
+
+                std::cout << " #" << (i+1) << ": " << mc.word
+                          << " [" << mc.row << "," << mc.col << " " << dir << "] "
+                          << "| Raw: " << mc.score
+                          << " | Visits: " << child->visits
+                          << " | Win Prob: " << (win_prob * 100.0) << "%\n";
+            }
+            std::cout << "======================================================\n\n";
+        }
+
+        // Return the most visited robust child
+        return !sorted_children.empty() ? sorted_children[0]->moveLeadingTo : candidates.back();
     }
 
     double Vanguard::consult_council(const GameState& state, const kernel::MoveCandidate& cand) {
