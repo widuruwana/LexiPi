@@ -1,347 +1,211 @@
 #include "../../include/spectre/spy.h"
-#include "../../include/tile_tracker.h"
-#include "../../include/kernel/move_generator.h"
 #include "../../include/engine/mechanics.h"
-#include "../../include/engine/dictionary.h"
-#include "../../include/spectre/logger.h"
+#include <random>
 #include <algorithm>
 #include <iostream>
-#include <cmath>
-#include <map>
-#include <random>
-#include <cstring> // For memset
-
-using namespace std;
 
 namespace spectre {
 
-Spy::Spy() {
-    particles.resize(PARTICLE_COUNT);
-    for(auto& p : particles) p.weight = 1.0;
-}
-
-// Helper to generate a cache key from a rack
-std::string getRackKey(const std::vector<char>& rack) {
-    std::string s(rack.begin(), rack.end());
-    std::sort(s.begin(), s.end());
-    return s;
-}
-
-const std::vector<char>& Spy::getUnseenPool() const {
-    return unseenPool;
-}
-
-void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard) {
-    if (unseenPool.empty()) return;
-
-    {
-        ScopedLogger log;
-        std::cout << "[SPY] Observing Move: " << move.word << std::endl;
+    Spy::Spy() {
+        particles.reserve(PARTICLE_COUNT);
+        unseen_pool.reserve(100);
     }
 
-    // 1. DEDUCE PLAYED TILES
-    std::vector<char> tilesPlayed;
-    int r = move.row; int c = move.col;
-    int dr = move.horizontal ? 0 : 1;
-    int dc = move.horizontal ? 1 : 0;
+    void Spy::updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const std::vector<Tile>& bag) {
+        // 1. Establish the standard 100-tile Scrabble distribution (A-Z + Blank)
+        int standard_counts[27] = {
+            9, 2, 2, 4, 12, 2, 3, 2, 9, 1, 1, 4, 2, 6, 8, 2, 1, 6, 4, 6, 4, 2, 2, 1, 2, 1, 2
+        };
 
-    for (char letter : move.word) {
-        if (preMoveBoard[r][c] == ' ') {
-            tilesPlayed.push_back(letter);
-        }
-        r += dr; c += dc;
-    }
-
-    // 2. SCORE THE MOVE
-    Board bonusBoard = createBoard();
-    kernel::MoveCandidate mc;
-    mc.row = move.row;
-    mc.col = move.col;
-    mc.isHorizontal = move.horizontal;
-
-    strncpy(mc.word, move.word, 16);
-    mc.word[15] = '\0'; // Safety null-termination
-
-    int actualScore = Mechanics::calculateTrueScore(mc, preMoveBoard, bonusBoard);
-
-    std::cout << "[SPY] Observing Move: " << move.word
-              << " | Score: " << actualScore
-              << " | Tiles Required: ";
-    for(char c : tilesPlayed) std::cout << c;
-    std::cout << std::endl;
-
-    // 3. UPDATE PARTICLES (With Caching)
-    double totalWeight = 0.0;
-    std::map<std::string, int> scoreCache; // <--- THE CACHE
-
-    int hardFilterPassCount = 0;
-    int perfectRationalityCount = 0;
-
-    for (auto& p : particles) {
-        // A. HARD FILTER
-        std::vector<char> rackCopy = p.rack;
-        bool possible = true;
-        for (char t : tilesPlayed) {
-            auto it = std::find(rackCopy.begin(), rackCopy.end(), t);
-            if (it != rackCopy.end()) *it = ' ';
-            else {
-                auto bit = std::find(rackCopy.begin(), rackCopy.end(), '?');
-                if (bit != rackCopy.end()) *bit = ' ';
-                else { possible = false; break; }
-            }
-        }
-
-        if (!possible) {
-            p.weight = 0.0;
-            continue;
-        }
-
-        hardFilterPassCount++;
-
-        // B. SOFT FILTER (Optimized)
-        // Check cache first
-        std::string key = getRackKey(p.rack);
-        int bestPossible = 0;
-
-        if (scoreCache.count(key)) {
-            bestPossible = scoreCache[key];
-        } else {
-            // Expensive calculation happens only once per unique rack
-            // NOW OPTIMIZED with generate_raw
-            bestPossible = findBestPossibleScore(p.rack, preMoveBoard);
-            scoreCache[key] = bestPossible;
-        }
-
-        // [FIX] ROBUST RATIONALITY LOGIC
-        double rationality = 0.0;
-
-        // CASE 1: Opponent played BETTER than we thought possible (Genius or Generator mismatch)
-        // This is STRONG evidence they have this rack.
-        if (actualScore > bestPossible) {
-            rationality = 1.0;
-        }
-        // CASE 2: Opponent played optimally or near-optimally
-        else {
-            int delta = bestPossible - actualScore;
-            if (delta == 0) rationality = 1.0;
-            else if (delta <= 5) rationality = 0.8;  // Relaxed from 0.9
-            else if (delta <= 15) rationality = 0.4; // Relaxed from 0.5
-            else if (delta <= 30) rationality = 0.1;
-            else rationality = 0.01; // Blunder
-        }
-
-        if (rationality > 0.8) perfectRationalityCount++;
-
-        p.weight *= rationality;
-        totalWeight += p.weight;
-    }
-
-    {
-        ScopedLogger log;
-        std::cout << "[SPY] Particle Report:"
-                  << "\n\t Total Particles: " << particles.size()
-                  << "\n\t Passed Hard Filter: " << hardFilterPassCount
-                  << "\n\t Perfect Rationality: " << perfectRationalityCount
-                  << "\n\t Total Mass: " << totalWeight
-                  << std::endl;
-    }
-
-    // 4. RESAMPLE OR REBOOT
-    if (totalWeight < 0.0001) {
-        ScopedLogger log;
-        std::cout << "[SPY] Model Mismatch (TotalMass=" << totalWeight << "). Rebooting particles..." << std::endl;
-
-        // Reboot Logic: Assume they definitely had the tiles they played
-        // Fill the rest randomly.
-        static thread_local std::mt19937 rng(std::random_device{}());
-        for(auto& p : particles) {
-            p.rack.clear();
-            p.weight = 1.0;
-            for(char c : tilesPlayed) p.rack.push_back(c);
-
-            std::vector<char> pool = unseenPool;
-            std::shuffle(pool.begin(), pool.end(), rng);
-            while(p.rack.size() < 7 && !pool.empty()) {
-                p.rack.push_back(pool.back());
-                pool.pop_back();
-            }
-        }
-    } else {
-        resample_particles();
-    }
-
-    // 5. TRANSITION
-    for(auto& p : particles) {
-        for(char t : tilesPlayed) {
-            auto it = std::find(p.rack.begin(), p.rack.end(), t);
-            if(it != p.rack.end()) p.rack.erase(it);
-            else {
-                auto bit = std::find(p.rack.begin(), p.rack.end(), '?');
-                if(bit != p.rack.end()) p.rack.erase(bit);
-            }
-        }
-    }
-}
-
-// OPTIMIZED: Uses generate_raw (Stack Only) - 100x Faster
-int Spy::findBestPossibleScore(const std::vector<char>& rack, const LetterBoard& board) {
-    // 1. Convert to Rack Counts (Stack Array)
-    int rackCounts[27] = {0};
-    for(char c : rack) {
-        if (c == '?') rackCounts[26]++;
-        else if (c >= 'A' && c <= 'Z') rackCounts[c - 'A']++;
-        else if (c >= 'a' && c <= 'z') rackCounts[c - 'a']++;
-    }
-
-    int maxScore = 0;
-    Board bonusBoard = createBoard();
-
-    // 2. Lambda Consumer (No Vectors!)
-    auto scoringConsumer = [&](kernel::MoveCandidate& cand, int* leave) -> bool {
-        int s = Mechanics::calculateTrueScore(cand, board, bonusBoard);
-        if (s > maxScore) maxScore = s;
-        return true;
-    };
-
-    // 3. Raw Generation (Fastest Path)
-    kernel::MoveGenerator::generate_raw(board, rackCounts, gDictionary, scoringConsumer);
-
-    return maxScore;
-}
-
-void Spy::updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const TileBag& bag) {
-    // 1. Rebuild Unseen Pool
-    unseenPool.clear();
-    TileTracker tracker;
-    for(int r=0; r<15; r++) for(int c=0; c<15; c++)
-        if(board[r][c] != ' ') tracker.markSeen(board[r][c]);
-    for(const auto& t : myRack) tracker.markSeen(t.letter);
-
-    string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ?";
-    for (char c : alphabet) {
-        int count = tracker.getUnseenCount(c);
-        for (int k=0; k<count; k++) unseenPool.push_back(c);
-    }
-
-    {
-        ScopedLogger log;
-        std::cout << "[SPY] Ground Truth Updated. Unseen Pool Size: " << unseenPool.size() << std::endl;
-    }
-
-    // 2. REFILL PARTICLES (OPTIMIZED SCRATCH BUFFER)
-    static thread_local std::mt19937 rng(std::random_device{}());
-
-    if(particles.empty()) { initParticles(); return; }
-
-    // Optimization: Create ONE scratch buffer for the pool
-    std::vector<char> scratchPool;
-    scratchPool.reserve(100);
-
-    for (auto& p : particles) {
-        if (p.rack.size() >= 7) continue;
-
-        // Reset scratch pool from the master source
-        scratchPool = unseenPool;
-
-        // "Subtract" existing rack tiles from scratch pool
-        for(char existing : p.rack) {
-            for(size_t i = 0; i < scratchPool.size(); i++) {
-                if (scratchPool[i] == existing) {
-                    scratchPool[i] = scratchPool.back();
-                    scratchPool.pop_back();
-                    break;
+        // 2. Subtract tiles physically visible on the board
+        for (int r = 0; r < 15; r++) {
+            for (int c = 0; c < 15; c++) {
+                char ch = board[r][c];
+                if (ch != ' ') {
+                    if (ch >= 'a' && ch <= 'z') {
+                        standard_counts[26]--; // Lowercase represents a played blank
+                    } else {
+                        standard_counts[ch - 'A']--;
+                    }
                 }
             }
         }
 
-        // Fill remaining slots
-        while(p.rack.size() < 7 && !scratchPool.empty()) {
-            std::uniform_int_distribution<int> dist(0, scratchPool.size() - 1);
-            int idx = dist(rng);
+        // 3. Subtract tiles physically present on my rack
+        for (const auto& t : myRack) {
+            if (t.letter == '?') {
+                standard_counts[26]--;
+            } else if (t.letter >= 'A' && t.letter <= 'Z') {
+                standard_counts[t.letter - 'A']--;
+            }
+        }
 
-            p.rack.push_back(scratchPool[idx]);
+        // 4. Populate the unseen pool vector with what remains
+        unseen_pool.clear();
+        for (int i = 0; i < 26; i++) {
+            for (int k = 0; k < standard_counts[i]; k++) {
+                unseen_pool.push_back((char)('A' + i));
+            }
+        }
+        for (int k = 0; k < standard_counts[26]; k++) {
+            unseen_pool.push_back('?');
+        }
 
-            // Remove the picked tile (Swap & Pop)
-            scratchPool[idx] = scratchPool.back();
-            scratchPool.pop_back();
+        // 5. If this is the very first turn, initialize the particle filter
+        if (particles.empty()) {
+            initialize_particles();
         }
     }
-}
 
-void Spy::initParticles() {
-    static thread_local std::mt19937 rng(std::random_device{}());
-    for(int i=0; i<PARTICLE_COUNT; i++) {
-        particles[i].rack.clear();
-        particles[i].weight = 1.0;
+    void Spy::initialize_particles() {
+        static thread_local std::mt19937 rng(std::random_device{}());
+        particles.clear();
 
-        if (unseenPool.empty()) continue;
+        int target_rack_size = std::min((int)unseen_pool.size(), 7);
 
-        std::vector<char> pool = unseenPool;
-        std::shuffle(pool.begin(), pool.end(), rng);
+        for (int i = 0; i < PARTICLE_COUNT; i++) {
+            Particle p;
+            p.rack_size = target_rack_size;
+            p.weight = 1.0 / PARTICLE_COUNT;
 
-        int draw = std::min((int)pool.size(), 7);
-        for(int k=0; k<draw; k++) particles[i].rack.push_back(pool[k]);
-    }
-}
+            std::vector<char> pool_copy = unseen_pool;
+            std::shuffle(pool_copy.begin(), pool_copy.end(), rng);
 
-void Spy::resample_particles() {
-    if (particles.empty()) return;
-
-    int num_particles = particles.size();
-    std::vector<Particle> new_particles;
-    new_particles.reserve(num_particles);
-
-    // 1. Calculate Total Weight
-    double total_weight = 0.0;
-    for (const auto& p : particles) {
-        total_weight += p.weight;
+            for (int j = 0; j < target_rack_size; j++) {
+                p.rack[j] = pool_copy[j];
+            }
+            particles.push_back(p);
+        }
     }
 
-    // Failsafe: If all particles were crushed to 0 (e.g., impossible board state),
-    // we re-initialize uniformly rather than crashing.
-    if (total_weight <= 0.0) {
+    void Spy::observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard) {
+        if (move.word[0] == '\0' || particles.empty()) {
+            return; // Opponent passed or no particles exist to filter
+        }
+
+        // 1. Extract ONLY the tiles the opponent actually played from their rack
+        std::string played_tiles = "";
+        int r = move.row;
+        int c = move.col;
+        int dr = move.horizontal ? 0 : 1;
+        int dc = move.horizontal ? 1 : 0;
+
+        for (int i = 0; move.word[i] != '\0'; i++) {
+            if (r < 15 && c < 15 && preMoveBoard[r][c] == ' ') {
+                played_tiles += move.word[i];
+            }
+            r += dr;
+            c += dc;
+        }
+
+        // 2. Filter the particles based on physical possibility
+        double total_weight = 0.0;
+
         for (auto& p : particles) {
-            p.weight = 1.0 / num_particles;
-        }
-        return;
-    }
-
-    // 2. Systematic Resampling Setup
-    double step = total_weight / num_particles;
-
-    // Generate a single random starting point in the first interval
-    static thread_local std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<double> dist(0.0, step);
-    double r = dist(rng);
-
-    // 3. The Stratified Sweep (O(N) Time Complexity)
-    double c = particles[0].weight;
-    int i = 0;
-
-    for (int m = 0; m < num_particles; m++) {
-        double u = r + (m * step);
-
-        // Advance the pointer until the cumulative weight exceeds the current threshold
-        while (u > c && i < num_particles - 1) {
-            i++;
-            c += particles[i].weight;
+            if (!particle_contains_tiles(p, played_tiles)) {
+                p.weight = 0.0; // Particle did not possess the required tiles
+            } else {
+                total_weight += p.weight;
+            }
         }
 
-        // Clone the selected particle and reset its weight
-        Particle cloned_particle = particles[i];
-        cloned_particle.weight = 1.0 / num_particles; // Normalize new weights
-        new_particles.push_back(std::move(cloned_particle));
+        // 3. Normalize weights and execute Systematic Resampling
+        if (total_weight > 0.0) {
+            for (auto& p : particles) {
+                p.weight /= total_weight;
+            }
+            resample_particles();
+        } else {
+            // Failsafe: All particles died (tracking error or hallucinated board state). Reboot.
+            particles.clear();
+            initialize_particles();
+        }
     }
 
-    // 4. Commit the new generation
-    particles = std::move(new_particles);
-}
+    void Spy::resample_particles() {
+        if (particles.empty()) return;
 
-std::vector<char> Spy::generateWeightedRack() const {
-    if (particles.empty()) return {};
-    static thread_local std::mt19937 rng(std::random_device{}());
-    std::uniform_int_distribution<int> dist(0, particles.size() - 1);
-    return particles[dist(rng)].rack;
-}
+        std::vector<Particle> new_particles;
+        new_particles.reserve(PARTICLE_COUNT);
+
+        double step = 1.0 / PARTICLE_COUNT;
+
+        static thread_local std::mt19937 rng(std::random_device{}());
+        std::uniform_real_distribution<double> dist(0.0, step);
+        double r = dist(rng);
+
+        double c = particles[0].weight;
+        int i = 0;
+
+        // $O(N)$ Systematic Resampling Sweep
+        for (int m = 0; m < PARTICLE_COUNT; m++) {
+            double u = r + (m * step);
+
+            while (u > c && i < PARTICLE_COUNT - 1) {
+                i++;
+                c += particles[i].weight;
+            }
+
+            Particle cloned = particles[i];
+            cloned.weight = 1.0 / PARTICLE_COUNT; // Reset back to uniform probability
+            new_particles.push_back(cloned);
+        }
+
+        particles = std::move(new_particles);
+    }
+
+    std::vector<char> Spy::sampleParticleRack() const {
+        if (particles.empty()) return {};
+
+        static thread_local std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<int> dist(0, particles.size() - 1);
+
+        const Particle& p = particles[dist(rng)];
+
+        std::vector<char> sampled;
+        sampled.reserve(p.rack_size);
+        for(int i = 0; i < p.rack_size; i++) {
+            sampled.push_back(p.rack[i]);
+        }
+        return sampled;
+    }
+
+    const std::vector<char>& Spy::getUnseenPool() const {
+        return unseen_pool;
+    }
+
+    bool Spy::particle_contains_tiles(const Particle& p, const std::string& required_tiles) const {
+        int p_counts[27] = {0};
+
+        for (int i = 0; i < p.rack_size; i++) {
+            char ch = p.rack[i];
+            if (ch == '?') {
+                p_counts[26]++;
+            } else if (ch >= 'A' && ch <= 'Z') {
+                p_counts[ch - 'A']++;
+            }
+        }
+
+        for (char ch : required_tiles) {
+            bool isBlank = (ch >= 'a' && ch <= 'z');
+            if (isBlank) {
+                if (p_counts[26] > 0) {
+                    p_counts[26]--;
+                } else {
+                    return false;
+                }
+            } else {
+                int idx = ch - 'A';
+                if (idx >= 0 && idx < 26 && p_counts[idx] > 0) {
+                    p_counts[idx]--;
+                } else if (p_counts[26] > 0) {
+                    p_counts[26]--; // Fallback to blank
+                } else {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 
 }

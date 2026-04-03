@@ -1,25 +1,18 @@
 #include "../../include/spectre/vanguard.h"
 #include "../../include/kernel/move_generator.h"
-#include "../../include/kernel/greedy_engine.h"
 #include "../../include/engine/mechanics.h"
 #include "../../include/engine/dictionary.h"
 #include <cmath>
 #include <limits>
 #include <algorithm>
-#include <iostream>
-#include <cstring>
 #include <chrono>
+#include <cstring>
 
 using namespace std::chrono;
 
 namespace spectre {
 
-    // --- THE MATHEMATICAL CONSTANT FIX ---
-    // Scaled specifically for [0.0, 1.0] Win Probability bounds.
-    static const double UCT_C = 1.41421356;
-
-    // --- INTERNAL HELPERS ---
-    bool is_game_over(const GameState& state) {
+    static bool is_game_over(const GameState& state) {
         if (!state.bag.empty()) return false;
         for (const auto& p : state.players) {
             if (p.rack.empty()) return true;
@@ -27,11 +20,7 @@ namespace spectre {
         return false;
     }
 
-    // --- VANGUARD IMPLEMENTATION ---
-
-    Vanguard::Vanguard() {
-        // Advisors (General, Treasurer) are auto-initialized
-    }
+    Vanguard::Vanguard() {}
 
     kernel::MoveCandidate Vanguard::select_best_move(
         const GameState& state,
@@ -46,56 +35,29 @@ namespace spectre {
             return pass;
         }
 
-        auto root = std::make_unique<MCTSNode>(state, kernel::MoveCandidate(), nullptr);
-        root->untriedMoves = candidates;
+        // 1. UPDATE THE JIT CONTEXT
+        int myScore = state.players[state.currentPlayerIndex].score;
+        int oppScore = state.players[1 - state.currentPlayerIndex].score;
+        int scoreDiff = myScore - oppScore;
 
-        // COUNCIL SORT (Heuristic Pre-Sorting)
+        TopologyReport topo = general.scan_topology(state.board);
+        treasurer.update_market_context(topo, scoreDiff, state.bag);
+
+        auto root = std::make_unique<MCTSNode>(state, kernel::MoveCandidate(), nullptr);
+        root->untriedMoves.reserve(candidates.size());
+
+        // 2. EVALUATE ONCE & CACHE
+        for (const auto& c : candidates) {
+            root->untriedMoves.push_back({c, consult_council(state, c)});
+        }
+
+        // 3. SORT BY CACHED WIN PROBABILITY
         std::sort(root->untriedMoves.begin(), root->untriedMoves.end(),
-            [&](const kernel::MoveCandidate& a, const kernel::MoveCandidate& b) {
-                double probA = consult_council(state, a);
-                double probB = consult_council(state, b);
-                return probA < probB;
+            [](const EvaluatedMove& a, const EvaluatedMove& b) {
+                return a.win_prob < b.win_prob;
             });
 
-        // Debug Output
-        std::cout << "\n[VANGUARD] --- HEURISTIC RANKING (PRE-SIMULATION) ---" << std::endl;
-        int count = 0;
-
-        for (auto it = root->untriedMoves.rbegin(); it != root->untriedMoves.rend(); ++it) {
-            if (count >= 5) break;
-
-            Move m;
-            m.row = it->row; m.col = it->col; m.horizontal = it->isHorizontal;
-            m.type = MoveType::PLAY;
-            std::strncpy(m.word, it->word, 16);
-            m.word[15] = '\0';
-
-            float topoScore = general.evaluate_topology(state, m);
-            double topoBias = (topoScore - 0.5) * 40.0;
-            float nav = treasurer.evaluate_equity(state, m, it->score);
-
-            int scoreDiff = state.players[state.currentPlayerIndex].score - state.players[1 - state.currentPlayerIndex].score;
-            float win_prob = treasurer.normalize_to_winprob(scoreDiff, nav + topoBias, state.bag.size());
-
-            std::cout << "#" << (count + 1) << ": " << it->word
-                      << " | Raw: " << it->score
-                      << " | NAV: " << nav
-                      << " | TopoBias: " << (topoBias >= 0 ? "+" : "") << topoBias
-                      << " | Prior WinProb: " << (win_prob * 100.0f) << "%"
-                      << std::endl;
-
-            if (count == 0) {
-                std::cout << "------------------------------------------" << std::endl;
-                treasurer.report_equity(state, m, it->score);
-                general.report_topology(state, m);
-                std::cout << "------------------------------------------" << std::endl;
-            }
-
-            count++;
-        }
-        std::cout << "------------------------------------------\n" << std::endl;
-
-        // MCTS LOOP
+        // 4. MCTS LOOP
         auto startTime = high_resolution_clock::now();
 
         while (true) {
@@ -113,7 +75,7 @@ namespace spectre {
             backpropagate(leaf, result);
         }
 
-        // SELECT ROBUST CHILD
+        // 5. SELECT ROBUST CHILD
         MCTSNode* bestChild = nullptr;
         int maxVisits = -1;
 
@@ -129,26 +91,20 @@ namespace spectre {
 
     double Vanguard::consult_council(const GameState& state, const kernel::MoveCandidate& cand) {
         Move m;
-        m.row = cand.row;
-        m.col = cand.col;
-        m.horizontal = cand.isHorizontal;
+        m.row = cand.row; m.col = cand.col; m.horizontal = cand.isHorizontal;
         m.type = MoveType::PLAY;
-        std::strncpy(m.word, cand.word, 16);
-        m.word[15] = '\0';
+        std::strncpy(m.word, cand.word, 16); m.word[15] = '\0';
 
         float topoScore = general.evaluate_topology(state, m);
         double topoBias = (topoScore - 0.5) * 40.0;
         float nav = treasurer.evaluate_equity(state, m, cand.score);
 
-        // NORMALIZATION FIX: Convert Council's raw point evaluation into a prior Win Probability
         int myScore = state.players[state.currentPlayerIndex].score;
         int oppScore = state.players[1 - state.currentPlayerIndex].score;
         int scoreDiff = myScore - oppScore;
 
         return treasurer.normalize_to_winprob(scoreDiff, nav + topoBias, state.bag.size());
     }
-
-    // --- MCTS PHASES ---
 
     MCTSNode* Vanguard::select_node(MCTSNode* node) {
         while (node->untriedMoves.empty() && !node->children.empty()) {
@@ -169,21 +125,22 @@ namespace spectre {
     }
 
     MCTSNode* Vanguard::expand_node(MCTSNode* node, const Board& bonusBoard) {
-        kernel::MoveCandidate move = node->untriedMoves.back();
+        EvaluatedMove emove = node->untriedMoves.back();
         node->untriedMoves.pop_back();
 
         GameState newState = node->state.clone();
 
         Move m;
-        m.row = move.row; m.col = move.col; m.horizontal = move.isHorizontal;
+        m.row = emove.cand.row; m.col = emove.cand.col; m.horizontal = emove.cand.isHorizontal;
         m.type = MoveType::PLAY;
-        std::strncpy(m.word, move.word, 16);
-        m.word[15] = '\0';
+        std::strncpy(m.word, emove.cand.word, 16); m.word[15] = '\0';
 
-        Mechanics::applyMove(newState, m, move.score);
+        Mechanics::applyMove(newState, m, emove.cand.score);
 
-        auto child = std::make_unique<MCTSNode>(newState, move, node);
-        child->heuristicBias = consult_council(node->state, move); // Bias is now [0.0, 1.0]
+        auto child = std::make_unique<MCTSNode>(newState, emove.cand, node);
+
+        // O(1) Bias Transfer. Zero re-evaluation.
+        child->heuristicBias = emove.win_prob;
 
         MCTSNode* childPtr = child.get();
         node->children.push_back(std::move(child));
@@ -191,9 +148,8 @@ namespace spectre {
     }
 
     double Vanguard::simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard) {
-        GameState simState = startState.clone();
-
-        std::vector<char> oppRackChars = spy.generateWeightedRack();
+        // LIGHTWEIGHT ROLLOUT: No deep state clones, no heavy Treasurer evaluations.
+        std::vector<char> oppRackChars = spy.sampleParticleRack();
         int oppRackCounts[27] = {0};
 
         for(char c : oppRackChars) {
@@ -201,44 +157,27 @@ namespace spectre {
             else if (isalpha(c)) oppRackCounts[toupper(c) - 'A']++;
         }
 
-        std::vector<Tile> oppRackTiles;
-        for(char c : oppRackChars) { Tile t; t.letter = c; t.points = 0; oppRackTiles.push_back(t); }
-        simState.players[simState.currentPlayerIndex].rack = oppRackTiles;
-
-        double bestNav = -10000.0;
-
+        int bestScore = 0;
         auto opponentConsumer = [&](kernel::MoveCandidate& cand, int* leave) -> bool {
-            Move m;
-            m.row = cand.row; m.col = cand.col; m.horizontal = cand.isHorizontal;
-            strncpy(m.word, cand.word, 16);
-            m.word[15] = '\0';
-
-            int score = Mechanics::calculateTrueScore(cand, simState.board, bonusBoard);
-            float nav = treasurer.evaluate_equity(simState, m, score);
-
-            if (nav > bestNav) {
-                bestNav = nav;
-            }
+            int score = Mechanics::calculateTrueScore(cand, startState.board, bonusBoard);
+            if (score > bestScore) bestScore = score;
             return true;
         };
 
-        kernel::MoveGenerator::generate_raw(simState.board, oppRackCounts, gDictionary, opponentConsumer);
+        kernel::MoveGenerator::generate_raw(startState.board, oppRackCounts, gDictionary, opponentConsumer);
 
-        if (bestNav == -10000.0) bestNav = 0.0; // Pass
-
-        // NORMALIZATION FIX: Convert projected point differential into a Win Probability
         int myScore = startState.players[startState.currentPlayerIndex].score;
         int oppScore = startState.players[1 - startState.currentPlayerIndex].score;
         int scoreDiff = myScore - oppScore;
 
-        // Spread = Current Diff - Opponent's expected gain
-        return treasurer.normalize_to_winprob(scoreDiff, -bestNav, startState.bag.size());
+        // Rollout uses pure expected loss, mapped cleanly to [0,1]
+        return treasurer.normalize_to_winprob(scoreDiff, -(float)bestScore, startState.bag.size());
     }
 
     void Vanguard::backpropagate(MCTSNode* node, double score) {
         while (node) {
             node->visits++;
-            node->totalScore += score; // Score is now [0.0, 1.0] Win Probability
+            node->totalScore += score;
             node = node->parent;
         }
     }
@@ -246,13 +185,8 @@ namespace spectre {
     double Vanguard::calculate_uct_value(const MCTSNode* node) const {
         if (node->visits == 0) return 1e9;
 
-        // FIX: Removed the raw '+ node->moveLeadingTo.score' addition.
-        // avgOutcome is strictly [0.0, 1.0]
         double avgOutcome = node->totalScore / node->visits;
-
         double exploration = UCT_C * std::sqrt(std::log(node->parent->visits) / node->visits);
-
-        // heuristicBias is also [0.0, 1.0]
         double bias = (node->heuristicBias * BIAS_WEIGHT) / (1 + node->visits);
 
         return avgOutcome + exploration + bias;

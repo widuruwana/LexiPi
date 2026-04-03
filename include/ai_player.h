@@ -54,5 +54,4 @@ private:
     spectre::Spy spy;
     spectre::Vanguard vanguard;
 
-    Move calculateDifferential(const GameState& state, const kernel::MoveCandidate& cand);
 };

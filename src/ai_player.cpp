@@ -1,31 +1,46 @@
 #include "../include/ai_player.h"
 #include "../include/spectre/judge.h"
 #include "../include/engine/mechanics.h"
-#include "../include/engine/dictionary.h" // For gDictionary
+#include "../include/engine/dictionary.h"
 #include <cstring>
 #include <iostream>
+#include <random>
+#include <algorithm>
 
 std::unique_ptr<PlayerController> create_ai_player(AIStyle style) {
-    if (style == AIStyle::SPEEDI_PI) return std::make_unique<GreedyPlayer>();
+    if (style == AIStyle::SPEEDI_PI) {
+        return std::make_unique<GreedyPlayer>();
+    }
     return std::make_unique<SpectrePlayer>();
 }
 
 // =========================================================
-// GREEDY PLAYER IMPLEMENTATION
+// GREEDY PLAYER IMPLEMENTATION (Stateless Control Group)
 // =========================================================
+
 GreedyPlayer::GreedyPlayer(std::string n) : playerName(n) {}
 
-std::string GreedyPlayer::getName() const { return playerName; }
+std::string GreedyPlayer::getName() const {
+    return playerName;
+}
 
 Move GreedyPlayer::getMove(const GameState& state, const Board& bonusBoard, const LastMoveInfo& lastMove, bool canChallenge) {
-    // Fixed: Call generate_best_move instead of deliberate
+    const Player& me = state.players[state.currentPlayerIndex];
+
+    // Pure stateless generation
     kernel::MoveCandidate bestCand = kernel::GreedyEngine::generate_best_move(state, bonusBoard);
 
-    if (bestCand.word[0] == '\0') return Move(MoveType::PASS);
+    if (bestCand.word[0] == '\0') {
+        return Move(MoveType::PASS);
+    }
 
     Move m(MoveType::PLAY);
-    m.row = bestCand.row; m.col = bestCand.col; m.horizontal = bestCand.isHorizontal;
-    std::strncpy(m.word, bestCand.word, 16); m.word[15] = '\0';
+    m.row = bestCand.row;
+    m.col = bestCand.col;
+    m.horizontal = bestCand.isHorizontal;
+    std::strncpy(m.word, bestCand.word, 16);
+    m.word[15] = '\0';
+
     return m;
 }
 
@@ -33,13 +48,15 @@ Move GreedyPlayer::getEndGameResponse(const GameState& state, const LastMoveInfo
     return Move(MoveType::PASS);
 }
 
+// =========================================================
+// SPECTRE PLAYER IMPLEMENTATION (Stateful Test Group)
+// =========================================================
 
-// =========================================================
-// SPECTRE PLAYER IMPLEMENTATION
-// =========================================================
 SpectrePlayer::SpectrePlayer(std::string n) : playerName(n) {}
 
-std::string SpectrePlayer::getName() const { return playerName; }
+std::string SpectrePlayer::getName() const {
+    return playerName;
+}
 
 void SpectrePlayer::observeMove(const Move& move, const LetterBoard& preMoveBoard) {
     spy.observeOpponentMove(move, preMoveBoard);
@@ -56,9 +73,12 @@ Move SpectrePlayer::getMove(const GameState& state, const Board& bonusBoard, con
     spy.updateGroundTruth(state.board, me.rack, state.bag);
 
     kernel::MoveCandidate bestCand;
+    bestCand.word[0] = '\0';
+    bestCand.score = 0;
 
     // 2. DECISION FORK
     if (state.bag.empty()) {
+        // --- ENDGAME (The Judge) ---
         std::vector<char> inferredOppChars;
         const std::vector<char>& rawPool = spy.getUnseenPool();
 
@@ -68,44 +88,59 @@ Move SpectrePlayer::getMove(const GameState& state, const Board& bonusBoard, con
             inferredOppChars = rawPool;
             static thread_local std::mt19937 rng(std::random_device{}());
             std::shuffle(inferredOppChars.begin(), inferredOppChars.end(), rng);
-            if (inferredOppChars.size() > 7) inferredOppChars.resize(7);
+            if (inferredOppChars.size() > 7) {
+                inferredOppChars.resize(7);
+            }
         }
 
         TileRack oppRack;
         for(char c : inferredOppChars) {
-            Tile t; t.letter = c; t.points = Mechanics::getPointValue(c);
+            Tile t;
+            t.letter = c;
+            t.points = Mechanics::getPointValue(c);
             oppRack.push_back(t);
         }
 
-        // Using global dictionary as required by judge
         bestCand = spectre::Judge::solveEndgame(state.board, bonusBoard, me.rack, oppRack, gDictionary);
     }
     else {
-        std::vector<kernel::MoveCandidate> candidates = kernel::MoveGenerator::generate(state.board, me.rack, gDictionary);
-        for(auto& cand : candidates) {
-            cand.score = Mechanics::calculateTrueScore(cand, state.board, bonusBoard);
+        // --- MIDGAME (The Vanguard + Zero Allocation Root Generator) ---
+        std::vector<kernel::MoveCandidate> candidates;
+        candidates.reserve(300); // Prevent reallocation during generation
+
+        int myRackCounts[27] = {0};
+        for (const auto& t : me.rack) {
+            if (t.letter == '?') {
+                myRackCounts[26]++;
+            } else if (isalpha(t.letter)) {
+                myRackCounts[toupper(t.letter) - 'A']++;
+            }
         }
 
+        // The Zero-Allocation Consumer Pipeline
+        auto rootConsumer = [&](kernel::MoveCandidate& cand, int* leave) -> bool {
+            cand.score = Mechanics::calculateTrueScore(cand, state.board, bonusBoard);
+            candidates.push_back(cand);
+            return true;
+        };
+
+        kernel::MoveGenerator::generate_raw(state.board, myRackCounts, gDictionary, rootConsumer);
+
+        // Pass the pre-evaluated candidates to Vanguard
         bestCand = vanguard.select_best_move(state, bonusBoard, candidates, spy);
     }
 
-    if (bestCand.word[0] == '\0') return Move(MoveType::PASS);
-
-    return calculateDifferential(state, bestCand);
-}
-
-Move SpectrePlayer::calculateDifferential(const GameState& state, const kernel::MoveCandidate& cand) {
-    Move m(MoveType::PLAY);
-    m.row = cand.row; m.col = cand.col; m.horizontal = cand.isHorizontal;
-
-    int r = cand.row, c = cand.col;
-    int dr = cand.isHorizontal ? 0 : 1, dc = cand.isHorizontal ? 1 : 0;
-    int writeIdx = 0;
-
-    for (int i = 0; cand.word[i] != '\0'; i++) {
-        if (state.board[r][c] == ' ') m.word[writeIdx++] = cand.word[i];
-        r += dr; c += dc;
+    if (bestCand.word[0] == '\0') {
+        return Move(MoveType::PASS);
     }
-    m.word[writeIdx] = '\0';
+
+    // 3. FULL STRING SEMANTICS (Fixes Spy/Treasurer tracking bugs)
+    Move m(MoveType::PLAY);
+    m.row = bestCand.row;
+    m.col = bestCand.col;
+    m.horizontal = bestCand.isHorizontal;
+    std::strncpy(m.word, bestCand.word, 16);
+    m.word[15] = '\0';
+
     return m;
 }
