@@ -35,7 +35,7 @@ void runPvE() {
 
     // 1. Setup Controllers
     HumanPlayer p1;
-    AIPlayer p2(style);
+    std::unique_ptr<PlayerController> p2 = create_ai_player(style);
 
     // 2. Setup Director
     Board b = createBoard();
@@ -43,7 +43,7 @@ void runPvE() {
     cfg.verbose = true;
     cfg.allowChallenge = true;
 
-    GameDirector director(&p1, &p2, b, cfg);
+    GameDirector director(&p1, p2.get(), b, cfg);
 
     // 3. Run
     director.run();

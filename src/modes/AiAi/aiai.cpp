@@ -22,21 +22,21 @@ using namespace std;
 
 // Wrapper for running a single game (Used only for singular execution if needed)
 MatchResult runSingleGame(AIStyle s1, AIStyle s2, int id, bool verbose) {
-    AIPlayer bot1(s1);
-    AIPlayer bot2(s2);
+    std::unique_ptr<PlayerController> bot1 = create_ai_player(s1);
+    std::unique_ptr<PlayerController> bot2 = create_ai_player(s2);
     Board b = createBoard();
     GameDirector::Config cfg;
     cfg.verbose = verbose;
     cfg.allowChallenge = false;
-    GameDirector director(&bot1, &bot2, b, cfg);
+    GameDirector director(bot1.get(), bot2.get(), b, cfg);
     return director.run(id);
 }
 
 // OPTIMIZED BATCH: Instantiates bots ONCE and reuses them
 vector<MatchResult> runBatch(AIStyle s1, AIStyle s2, int startId, int count, bool verbose) {
     // 1. ALLOCATE ONCE (On Stack) - Massive performance gain
-    AIPlayer bot1(s1);
-    AIPlayer bot2(s2);
+    std::unique_ptr<PlayerController> bot1 = create_ai_player(s1);
+    std::unique_ptr<PlayerController> bot2 = create_ai_player(s2);
     Board b = createBoard(); // Check if createBoard allocates; reusing 'b' is safer.
 
     GameDirector::Config cfg;
@@ -44,7 +44,7 @@ vector<MatchResult> runBatch(AIStyle s1, AIStyle s2, int startId, int count, boo
     cfg.allowChallenge = false;
 
     // 2. Create Director ONCE
-    GameDirector director(&bot1, &bot2, b, cfg);
+    GameDirector director(bot1.get(), bot2.get(), b, cfg);
 
     vector<MatchResult> results;
     results.reserve(count);

@@ -5,47 +5,54 @@
 #include "move.h"
 #include "player_controller.h"
 #include "kernel/move_generator.h"
-// REMOVED: #include "spectre/spy.h"
-#include <vector>
+#include "kernel/greedy_engine.h"
+#include "spectre/vanguard.h"
+#include "spectre/spy.h"
 #include <string>
 #include <memory>
 
-// DEFINE THE BOTS
+// Restored to keep PvE and AiAi menus compiling
 enum class AIStyle {
-    SPEEDI_PI,  // Fast, Static Heuristics (The "Speedster")
-    CUTIE_PI    // MCTS, Simulation (The "Champion")
+    SPEEDI_PI,
+    CUTIE_PI
 };
 
-class AIPlayer : public PlayerController {
+// Factory to spawn isolated players per match
+std::unique_ptr<PlayerController> create_ai_player(AIStyle style);
+
+// ---------------------------------------------------------
+// THE CONTROL GROUP (Stateless)
+// ---------------------------------------------------------
+class GreedyPlayer : public PlayerController {
 public:
-    AIPlayer(AIStyle style);
+    GreedyPlayer(std::string name = "Speedi_Pi");
 
-    Move getMove(const GameState& state,
-                 const Board& bonusBoard,
-                 const LastMoveInfo& lastMove,
-                 bool canChallenge) override;
-
-    Move getEndGameResponse(const GameState& state,
-                            const LastMoveInfo& lastMove) override;
-
-    void observeMove(const Move& move, const LetterBoard& board);
-
+    Move getMove(const GameState& state, const Board& bonusBoard, const LastMoveInfo& lastMove, bool canChallenge) override;
+    Move getEndGameResponse(const GameState& state, const LastMoveInfo& lastMove) override;
     std::string getName() const override;
 
 private:
-    AIStyle style;
-    // REMOVED: std::unique_ptr<spectre::Spy> spy;
+    std::string playerName;
+};
 
-    std::vector<kernel::MoveCandidate> candidates;
+// ---------------------------------------------------------
+// THE TEST GROUP (Stateful)
+// ---------------------------------------------------------
+class SpectrePlayer : public PlayerController {
+public:
+    SpectrePlayer(std::string name = "Cutie_Pi");
 
-    // Internal Helpers
-    void findAllMoves(const LetterBoard& letters, const TileRack& rack);
-    int calculateStaticScore(const kernel::MoveCandidate& move,
-                             const LetterBoard& letters,
-                             const Board& bonusBoard);
+    Move getMove(const GameState& state, const Board& bonusBoard, const LastMoveInfo& lastMove, bool canChallenge) override;
+    Move getEndGameResponse(const GameState& state, const LastMoveInfo& lastMove) override;
+    void observeMove(const Move& move, const LetterBoard& preMoveBoard) override;
+    std::string getName() const override;
 
-    struct DifferentialMove { int row, col; char word[16]; };
-    DifferentialMove calculateDifferential(const LetterBoard& letters, const kernel::MoveCandidate& best);
-    bool isRackBad(const TileRack& rack);
-    std::string getTilesToExchange(const TileRack& rack);
+private:
+    std::string playerName;
+
+    // Memory Encapsulation: Born and die with this instance.
+    spectre::Spy spy;
+    spectre::Vanguard vanguard;
+
+    Move calculateDifferential(const GameState& state, const kernel::MoveCandidate& cand);
 };
