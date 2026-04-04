@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <iostream>
 
 using namespace std::chrono;
 
@@ -20,13 +21,13 @@ namespace spectre {
         return false;
     }
 
-    Vanguard::Vanguard() {}
+    Vanguard::Vanguard(Treasurer* t) : treasurer(t) {}
 
     kernel::MoveCandidate Vanguard::select_best_move(
         const GameState& state,
         const Board& bonusBoard,
         const std::vector<kernel::MoveCandidate>& candidates,
-        spectre::Spy& spy)
+        OpponentModel* opponentModel)
     {
         if (candidates.empty()) {
             kernel::MoveCandidate pass;
@@ -41,7 +42,7 @@ namespace spectre {
         int scoreDiff = myScore - oppScore;
 
         TopologyReport topo = general.scan_topology(state.board);
-        treasurer.update_market_context(topo, scoreDiff, state.bag);
+        treasurer->update_market_context(topo, scoreDiff, state.bag);
 
         auto root = std::make_unique<MCTSNode>(state, kernel::MoveCandidate(), nullptr);
         root->untriedMoves.reserve(candidates.size());
@@ -59,7 +60,7 @@ namespace spectre {
 
         // 4. MCTS LOOP
         auto startTime = high_resolution_clock::now();
-        int mcts_iterations = 0; // We will track exactly how many simulations we run
+        int mcts_iterations = 0;
 
         while (true) {
             auto now = high_resolution_clock::now();
@@ -72,39 +73,30 @@ namespace spectre {
                 leaf = expand_node(leaf, bonusBoard);
             }
 
-            double result = simulate_rollout(leaf->state, spy, bonusBoard);
+            double result = simulate_rollout(leaf->state, opponentModel, bonusBoard);
             backpropagate(leaf, result);
             mcts_iterations++;
         }
 
-        // 5. POST-SIMULATION ANALYSIS & REPORTING
-        // Sort children by the number of visits (The standard MCTS "Robust Child" selection)
+        // 5. POST-SIMULATION ANALYSIS
         std::vector<MCTSNode*> sorted_children;
         for (const auto& child : root->children) {
             sorted_children.push_back(child.get());
         }
 
-        std::sort(sorted_children.begin(), sorted_children.end(), [](MCTSNode* a, MCTSNode* b) {
-            return a->visits > b->visits;
-        });
+        std::sort(sorted_children.begin(), sorted_children.end(),
+            [](MCTSNode* a, MCTSNode* b) { return a->visits > b->visits; });
 
-        // The Clean Telemetry Output
         if (!sorted_children.empty()) {
             std::cout << "\n======================================================\n";
             std::cout << "[VANGUARD] MCTS Complete | Iterations: " << mcts_iterations
                       << " | Time: " << TIME_BUDGET_MS << "ms\n";
             std::cout << "------------------------------------------------------\n";
-            std::cout << " TOP 3 EVALUATED LINES (POST-SIMULATION)\n";
-            std::cout << "------------------------------------------------------\n";
 
             for (size_t i = 0; i < std::min((size_t)3, sorted_children.size()); i++) {
                 MCTSNode* child = sorted_children[i];
                 kernel::MoveCandidate& mc = child->moveLeadingTo;
-
-                // Decode orientation so you know exactly WHERE the move is
                 char dir = mc.isHorizontal ? 'H' : 'V';
-
-                // Calculate actual MCTS win probability
                 double win_prob = (child->visits > 0) ? (child->totalScore / child->visits) : 0.0;
 
                 std::cout << " #" << (i+1) << ": " << mc.word
@@ -116,7 +108,6 @@ namespace spectre {
             std::cout << "======================================================\n\n";
         }
 
-        // Return the most visited robust child
         return !sorted_children.empty() ? sorted_children[0]->moveLeadingTo : candidates.back();
     }
 
@@ -128,13 +119,13 @@ namespace spectre {
 
         float topoScore = general.evaluate_topology(state, m);
         double topoBias = (topoScore - 0.5) * 40.0;
-        float nav = treasurer.evaluate_equity(state, m, cand.score);
+        float nav = treasurer->evaluate_equity(state, m, cand.score);
 
         int myScore = state.players[state.currentPlayerIndex].score;
         int oppScore = state.players[1 - state.currentPlayerIndex].score;
         int scoreDiff = myScore - oppScore;
 
-        return treasurer.normalize_to_winprob(scoreDiff, nav + topoBias, state.bag.size());
+        return treasurer->normalize_to_winprob(scoreDiff, nav + topoBias, state.bag.size());
     }
 
     MCTSNode* Vanguard::select_node(MCTSNode* node) {
@@ -169,8 +160,6 @@ namespace spectre {
         Mechanics::applyMove(newState, m, emove.cand.score);
 
         auto child = std::make_unique<MCTSNode>(newState, emove.cand, node);
-
-        // O(1) Bias Transfer. Zero re-evaluation.
         child->heuristicBias = emove.win_prob;
 
         MCTSNode* childPtr = child.get();
@@ -178,12 +167,16 @@ namespace spectre {
         return childPtr;
     }
 
-    double Vanguard::simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard) {
-        // LIGHTWEIGHT ROLLOUT: No deep state clones, no heavy Treasurer evaluations.
-        std::vector<char> oppRackChars = spy.sampleParticleRack();
-        int oppRackCounts[27] = {0};
+    double Vanguard::simulate_rollout(const GameState& startState,
+                                       OpponentModel* opponentModel,
+                                       const Board& bonusBoard) {
+        std::vector<char> oppRackChars;
+        if (opponentModel) {
+            oppRackChars = opponentModel->sampleOpponentRack();
+        }
 
-        for(char c : oppRackChars) {
+        int oppRackCounts[27] = {0};
+        for (char c : oppRackChars) {
             if (c == '?') oppRackCounts[26]++;
             else if (isalpha(c)) oppRackCounts[toupper(c) - 'A']++;
         }
@@ -201,8 +194,7 @@ namespace spectre {
         int oppScore = startState.players[1 - startState.currentPlayerIndex].score;
         int scoreDiff = myScore - oppScore;
 
-        // Rollout uses pure expected loss, mapped cleanly to [0,1]
-        return treasurer.normalize_to_winprob(scoreDiff, -(float)bestScore, startState.bag.size());
+        return treasurer->normalize_to_winprob(scoreDiff, -(float)bestScore, startState.bag.size());
     }
 
     void Vanguard::backpropagate(MCTSNode* node, double score) {
@@ -223,4 +215,4 @@ namespace spectre {
         return avgOutcome + exploration + bias;
     }
 
-}
+} // namespace spectre
