@@ -14,6 +14,8 @@ namespace kernel {
 
 namespace spectre {
 
+    class Spy; // forward declaration — full definition in spy.h
+
     // Transposition Table Entry
     struct TTEntry {
         int depth;
@@ -24,9 +26,15 @@ namespace spectre {
 
     class Judge {
     public:
-        // Main Entry Point
+        // Perfect-information endgame solver (bag empty)
         static kernel::MoveCandidate solveEndgame(const LetterBoard& board, const Board& bonusBoard,
                                  const TileRack& myRack, const TileRack& oppRack, Dictionary& dict);
+
+        // Stochastic pre-endgame solver (bag has <= 14 tiles).
+        // Samples numSamples opponent racks and averages minimax scores to handle uncertainty.
+        static kernel::MoveCandidate solvePreEndgame(const LetterBoard& board, const Board& bonusBoard,
+                                 const TileRack& myRack, spectre::Spy& spy,
+                                 Dictionary& dict, int numSamples = 8);
 
     private:
         // Hash Helpers

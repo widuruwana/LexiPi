@@ -58,6 +58,7 @@ namespace spectre {
             });
 
         // 4. MCTS LOOP
+        const int myPlayerIndex = state.currentPlayerIndex;
         auto startTime = high_resolution_clock::now();
         int mcts_iterations = 0; // We will track exactly how many simulations we run
 
@@ -72,7 +73,7 @@ namespace spectre {
                 leaf = expand_node(leaf, bonusBoard);
             }
 
-            double result = simulate_rollout(leaf->state, spy, bonusBoard);
+            double result = simulate_rollout(leaf->state, spy, bonusBoard, myPlayerIndex);
             backpropagate(leaf, result);
             mcts_iterations++;
         }
@@ -178,31 +179,79 @@ namespace spectre {
         return childPtr;
     }
 
-    double Vanguard::simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard) {
-        // LIGHTWEIGHT ROLLOUT: No deep state clones, no heavy Treasurer evaluations.
-        std::vector<char> oppRackChars = spy.sampleParticleRack();
-        int oppRackCounts[27] = {0};
+    double Vanguard::simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard, int myPlayerIndex) {
+        // 4-PLY GREEDY ROLLOUT — zero heap allocation after the initial rack sample.
+        // Constraints: consumer-pattern move generation, stack-local board/rack copies, no I/O.
 
-        for(char c : oppRackChars) {
-            if (c == '?') oppRackCounts[26]++;
-            else if (isalpha(c)) oppRackCounts[toupper(c) - 'A']++;
+        // Step 1: sample opponent rack (one std::vector alloc at entry — acceptable per architecture)
+        std::vector<char> oppChars = spy.sampleParticleRack();
+
+        // Step 2: stack-local rack counts (A-Z = indices 0-25, blank = index 26)
+        int myCounts[27] = {0};
+        int oppCounts[27] = {0};
+
+        for (const auto& tile : startState.players[myPlayerIndex].rack) {
+            if (tile.letter == '?') myCounts[26]++;
+            else if (tile.letter >= 'A' && tile.letter <= 'Z') myCounts[tile.letter - 'A']++;
+        }
+        for (char c : oppChars) {
+            if (c == '?') oppCounts[26]++;
+            else if (c >= 'A' && c <= 'Z') oppCounts[c - 'A']++;
         }
 
-        int bestScore = 0;
-        auto opponentConsumer = [&](kernel::MoveCandidate& cand, int* leave) -> bool {
-            int score = Mechanics::calculateTrueScore(cand, startState.board, bonusBoard);
-            if (score > bestScore) bestScore = score;
-            return true;
-        };
+        // Step 3: stack-local board copy (LetterBoard is a fixed-size char array — trivial copy)
+        LetterBoard rolloutBoard = startState.board;
 
-        kernel::MoveGenerator::generate_raw(startState.board, oppRackCounts, gDictionary, opponentConsumer);
+        // Step 4: running score differential
+        int myRolloutScore  = startState.players[myPlayerIndex].score;
+        int oppRolloutScore = startState.players[1 - myPlayerIndex].score;
+        int currentPlayer   = startState.currentPlayerIndex;
 
-        int myScore = startState.players[startState.currentPlayerIndex].score;
-        int oppScore = startState.players[1 - startState.currentPlayerIndex].score;
-        int scoreDiff = myScore - oppScore;
+        // Step 5: MAX_ROLLOUT_DEPTH plies of greedy play
+        for (int ply = 0; ply < MAX_ROLLOUT_DEPTH; ply++) {
+            int* activeCounts = (currentPlayer == myPlayerIndex) ? myCounts : oppCounts;
 
-        // Rollout uses pure expected loss, mapped cleanly to [0,1]
-        return treasurer.normalize_to_winprob(scoreDiff, -(float)bestScore, startState.bag.size());
+            // Consumer-pattern best-move search — zero vector allocation
+            int bestScore = 0;
+            kernel::MoveCandidate bestCand{};
+            auto consumer = [&](kernel::MoveCandidate& cand, int* /*leave*/) -> bool {
+                int s = Mechanics::calculateTrueScore(cand, rolloutBoard, bonusBoard);
+                if (s > bestScore) { bestScore = s; bestCand = cand; }
+                return true;
+            };
+            kernel::MoveGenerator::generate_raw(rolloutBoard, activeCounts, gDictionary, consumer);
+
+            if (bestScore == 0) break; // no legal move — implicit pass, stop rollout
+
+            // Apply best move inline: place tiles on board, deduct from rack
+            {
+                int r = bestCand.row, c = bestCand.col;
+                int dr = bestCand.isHorizontal ? 0 : 1, dc = bestCand.isHorizontal ? 1 : 0;
+                for (int i = 0; bestCand.word[i] != '\0'; i++, r += dr, c += dc) {
+                    if (rolloutBoard[r][c] == ' ') {
+                        char letter = bestCand.word[i];
+                        bool isBlank = (letter >= 'a' && letter <= 'z');
+                        rolloutBoard[r][c] = isBlank ? (char)(letter - 32) : letter;
+                        if (isBlank) {
+                            if (activeCounts[26] > 0) activeCounts[26]--;
+                        } else {
+                            int idx = letter - 'A';
+                            if (activeCounts[idx] > 0) activeCounts[idx]--;
+                            else if (activeCounts[26] > 0) activeCounts[26]--;
+                        }
+                    }
+                }
+            }
+
+            if (currentPlayer == myPlayerIndex) myRolloutScore  += bestScore;
+            else                                 oppRolloutScore += bestScore;
+
+            currentPlayer = 1 - currentPlayer;
+        }
+
+        // Step 6: convert final score differential to win probability
+        int finalDiff = myRolloutScore - oppRolloutScore;
+        return treasurer.normalize_to_winprob(finalDiff, 0.0f, (int)startState.bag.size());
     }
 
     void Vanguard::backpropagate(MCTSNode* node, double score) {

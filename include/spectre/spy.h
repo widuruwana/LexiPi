@@ -43,6 +43,10 @@ namespace spectre {
         void initialize_particles();
         void resample_particles();
         bool particle_contains_tiles(const Particle& p, const std::string& required_tiles) const;
+
+        // Softer check: allows one tile in the particle to act as a wildcard blank.
+        // Used as a recovery pass before full reboot when all particles die.
+        bool particle_contains_tiles_with_wildcard(const Particle& p, const std::string& required_tiles) const;
     };
 
 }

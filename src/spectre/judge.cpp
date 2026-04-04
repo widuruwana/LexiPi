@@ -1,4 +1,5 @@
 #include "../../include/spectre/judge.h"
+#include "../../include/spectre/spy.h"
 #include "../../include/kernel/move_generator.h"
 #include "../../include/kernel/heuristics.h"
 #include "../../include/engine/mechanics.h"
@@ -26,6 +27,31 @@ static uint64_t ZOBRIST_RACK_MY[27][10];   // Letter x Count
 static uint64_t ZOBRIST_RACK_OPP[27][10];
 static uint64_t ZOBRIST_TURN;
 static bool g_hashInitialized = false;
+
+// Computes the leave equity for a move by subtracting placed tiles from rackCounts.
+// Used for equity-augmented move ordering in alpha-beta — better ordering → more cutoffs.
+// stack-only, zero allocation, O(word_length + 27).
+static float leaveEquityForMove(const MoveCandidate& m, const LetterBoard& board, const int* rackCounts) {
+    int leaveCounts[27];
+    memcpy(leaveCounts, rackCounts, 27 * sizeof(int));
+    if (m.word[0] != '\0') {
+        int r = m.row, c = m.col;
+        int dr = m.isHorizontal ? 0 : 1, dc = m.isHorizontal ? 1 : 0;
+        for (int i = 0; m.word[i] != '\0'; i++, r += dr, c += dc) {
+            if (board[r][c] == ' ') {
+                char letter = m.word[i];
+                if (letter >= 'a' && letter <= 'z') {
+                    if (leaveCounts[26] > 0) leaveCounts[26]--;
+                } else {
+                    int idx = letter - 'A';
+                    if (leaveCounts[idx] > 0) leaveCounts[idx]--;
+                    else if (leaveCounts[26] > 0) leaveCounts[26]--;
+                }
+            }
+        }
+    }
+    return Heuristics::computeLeaveEquity(leaveCounts);
+}
 
 static void initZobrist() {
     if (g_hashInitialized) return;
@@ -128,10 +154,11 @@ kernel::MoveCandidate Judge::solveEndgame(const LetterBoard& board, const Board&
     passMove.score = 0;
     rootMoves.push_back(passMove);
 
-    // Sort by static score
+    // Sort by score + leave equity for better alpha-beta move ordering
     for(auto& m : rootMoves) m.score = Mechanics::calculateTrueScore(m, board, bonusBoard);
-    sort(rootMoves.begin(), rootMoves.end(), [](const MoveCandidate& a, const MoveCandidate& b) {
-        return a.score > b.score;
+    sort(rootMoves.begin(), rootMoves.end(), [&](const MoveCandidate& a, const MoveCandidate& b) {
+        return ((float)a.score + leaveEquityForMove(a, board, myRackCounts))
+             > ((float)b.score + leaveEquityForMove(b, board, myRackCounts));
     });
 
     MoveCandidate bestMove = rootMoves[0];
@@ -183,6 +210,108 @@ kernel::MoveCandidate Judge::solveEndgame(const LetterBoard& board, const Board&
               << " | Best Val: " << bestVal << std::endl;
 
     return bestMove;
+}
+
+kernel::MoveCandidate Judge::solvePreEndgame(const LetterBoard& board, const Board& bonusBoard,
+                                              const TileRack& myRack, spectre::Spy& spy,
+                                              Dictionary& dict, int numSamples) {
+    initZobrist();
+    g_nodesVisited = 0;
+    g_ttHits = 0;
+
+    // 1. My rack counts (stack array)
+    int myRackCounts[27] = {0};
+    for (const auto& t : myRack) {
+        if (t.letter == '?') myRackCounts[26]++;
+        else if (isalpha(t.letter)) myRackCounts[toupper(t.letter) - 'A']++;
+    }
+
+    // 2. Root move generation — build once, reused across all samples
+    vector<MoveCandidate> rootMoves;
+    rootMoves.reserve(200);
+    auto rootConsumer = [&](MoveCandidate& cand, int* leave) -> bool {
+        rootMoves.push_back(cand);
+        return true;
+    };
+    MoveGenerator::generate_raw(board, myRackCounts, dict, rootConsumer);
+
+    MoveCandidate passMove;
+    passMove.word[0] = '\0'; passMove.score = 0;
+    rootMoves.push_back(passMove);
+
+    // Score and sort by equity-augmented value for consistent move ordering
+    for (auto& m : rootMoves) m.score = Mechanics::calculateTrueScore(m, board, bonusBoard);
+    sort(rootMoves.begin(), rootMoves.end(), [&](const MoveCandidate& a, const MoveCandidate& b) {
+        return ((float)a.score + leaveEquityForMove(a, board, myRackCounts))
+             > ((float)b.score + leaveEquityForMove(b, board, myRackCounts));
+    });
+
+    // 3. Accumulated scores across all samples
+    vector<float> accScores(rootMoves.size(), 0.0f);
+
+    // 4. Transposition table — cleared between samples, memory reused
+    unordered_map<uint64_t, TTEntry> transTable;
+    transTable.reserve(100000);
+
+    const int timeBudgetPerSample = 5000 / numSamples; // ~625ms each for numSamples=8
+
+    // 5. Sample loop: each iteration uses a different sampled opponent rack
+    for (int s = 0; s < numSamples; s++) {
+        transTable.clear();
+        auto sampleStart = steady_clock::now();
+
+        vector<char> oppChars = spy.sampleParticleRack();
+        int oppRackCounts[27] = {0};
+        for (char c : oppChars) {
+            if (c == '?') oppRackCounts[26]++;
+            else if (isalpha(c)) oppRackCounts[toupper(c) - 'A']++;
+        }
+
+        int alpha = -999999, beta = 999999; // reset per sample
+
+        for (size_t i = 0; i < rootMoves.size(); i++) {
+            const auto& move = rootMoves[i];
+
+            LetterBoard nextBoard = board;
+            int nextMyRack[27];
+            memcpy(nextMyRack, myRackCounts, sizeof(nextMyRack));
+
+            if (move.word[0] != '\0') {
+                if (!applyMove(nextBoard, move, nextMyRack)) continue;
+            }
+
+            bool rackEmpty = true;
+            for (int j = 0; j < 27; j++) if (nextMyRack[j] > 0) { rackEmpty = false; break; }
+
+            int currentScore = move.score;
+
+            if (rackEmpty && move.word[0] != '\0') {
+                // Going out immediately — collect bonus
+                int bonus = 0;
+                for (int j = 0; j < 26; j++) bonus += oppRackCounts[j] * Heuristics::getTileValue((char)('A'+j));
+                currentScore += (2 * bonus);
+                accScores[i] += (float)currentScore;
+                alpha = std::max(alpha, currentScore);
+                continue;
+            }
+
+            int val = currentScore - minimax(nextBoard, bonusBoard, oppRackCounts, nextMyRack, dict,
+                                             -beta, -alpha, false, 0, 1,
+                                             sampleStart, timeBudgetPerSample, transTable);
+            accScores[i] += (float)val;
+            alpha = std::max(alpha, val);
+            if (alpha >= beta) break; // alpha-beta cut across root moves for this sample
+        }
+    }
+
+    // 6. Return root move with highest average score across all samples
+    size_t bestIdx = 0;
+    float bestAvg = accScores[0];
+    for (size_t i = 1; i < accScores.size(); i++) {
+        if (accScores[i] > bestAvg) { bestAvg = accScores[i]; bestIdx = i; }
+    }
+
+    return rootMoves[bestIdx];
 }
 
 int Judge::minimax(LetterBoard& board, const Board& bonusBoard,
@@ -265,9 +394,12 @@ int Judge::minimax(LetterBoard& board, const Board& bonusBoard,
                         startTime, timeBudgetMs, transTable);
     }
 
-    // 5. Sorting & Search
+    // 5. Sorting & Search — equity-augmented ordering for better alpha-beta cutoffs
     for(auto& m : moves) m.score = Mechanics::calculateTrueScore(m, board, bonusBoard);
-    sort(moves.begin(), moves.end(), [](const MoveCandidate& a, const MoveCandidate& b){ return a.score > b.score; });
+    sort(moves.begin(), moves.end(), [&](const MoveCandidate& a, const MoveCandidate& b) {
+        return ((float)a.score + leaveEquityForMove(a, board, currentRackCounts))
+             > ((float)b.score + leaveEquityForMove(b, board, currentRackCounts));
+    });
 
     int bestVal = -999999;
 

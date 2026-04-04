@@ -37,6 +37,7 @@ namespace spectre {
         static constexpr int TIME_BUDGET_MS = 500;
         static constexpr double BIAS_WEIGHT = 1.0;
         static constexpr double UCT_C = 1.41421356;
+        static constexpr int MAX_ROLLOUT_DEPTH = 4; // 2 plies per player
 
         Vanguard();
         ~Vanguard() = default;
@@ -55,7 +56,7 @@ namespace spectre {
 
         MCTSNode* select_node(MCTSNode* node);
         MCTSNode* expand_node(MCTSNode* node, const Board& bonusBoard);
-        double simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard);
+        double simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard, int myPlayerIndex);
         void backpropagate(MCTSNode* node, double score);
         double calculate_uct_value(const MCTSNode* node) const;
     };

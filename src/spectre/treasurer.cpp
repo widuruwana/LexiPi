@@ -4,13 +4,63 @@
 #include <iostream>
 #include <iomanip>
 #include <cstring>
+#include <fstream>
 
 namespace spectre {
+
+// Order-independent polynomial hash for a leave represented as counts[27].
+// One prime per letter-slot; multiplying guarantees commutativity.
+// Collision-free for all legal 1-6 tile leaves over a 27-symbol alphabet.
+static uint32_t hashLeave(const int* leaveCounts) {
+    static constexpr uint32_t PRIMES[27] = {
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+        59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103
+    };
+    uint32_t h = 1;
+    for (int i = 0; i < 27; i++)
+        for (int j = 0; j < leaveCounts[i]; j++)
+            h *= PRIMES[i];
+    return h;
+}
 
     Treasurer::Treasurer() {
         for(int i = 0; i < 27; i++) turn_deltas[i] = 0.0f;
         current_gamma = 0.0f;
         current_market_volatility = 0.0f;
+        magpie_loaded = false;
+
+        // Auto-load Magpie combinatorial leave table from standard paths.
+        // Silently falls back to STATIC_LEAVES if the file is not present.
+        static const char* MAGPIE_PATHS[] = {
+            "data/magpie.bin", "../data/magpie.bin", "magpie.bin", nullptr
+        };
+        for (int i = 0; MAGPIE_PATHS[i]; i++) {
+            if (load_magpie(MAGPIE_PATHS[i])) break;
+        }
+    }
+
+    bool Treasurer::load_magpie(const std::string& path) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open()) return false;
+
+        uint32_t entry_count = 0;
+        file.read(reinterpret_cast<char*>(&entry_count), sizeof(uint32_t));
+        if (!file || entry_count == 0) return false;
+
+        magpie_table.clear();
+        magpie_table.reserve(entry_count);
+
+        for (uint32_t i = 0; i < entry_count; i++) {
+            uint32_t hash;
+            float equity;
+            file.read(reinterpret_cast<char*>(&hash), sizeof(uint32_t));
+            file.read(reinterpret_cast<char*>(&equity), sizeof(float));
+            if (!file) break;
+            magpie_table[hash] = equity;
+        }
+
+        magpie_loaded = !magpie_table.empty();
+        return magpie_loaded;
     }
 
     void Treasurer::update_market_context(const TopologyReport& topo, int scoreDiff, const std::vector<Tile>& bag) {
@@ -115,6 +165,14 @@ namespace spectre {
     }
 
     float Treasurer::get_quackle_baseline(const int* leaveCounts) const {
+        // Magpie path: O(1) lookup into combinatorial leave table when available
+        if (magpie_loaded) {
+            uint32_t h = hashLeave(leaveCounts);
+            auto it = magpie_table.find(h);
+            if (it != magpie_table.end()) return it->second;
+        }
+
+        // Fallback: Quackle CSW single-tile superleave baseline
         static const float STATIC_LEAVES[27] = {
              1.0f,  -3.5f, -0.5f,  0.0f,  4.0f,
             -2.0f,  -2.0f,  0.5f, -0.5f, -3.0f,

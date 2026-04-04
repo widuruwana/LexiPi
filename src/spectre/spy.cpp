@@ -116,9 +116,24 @@ namespace spectre {
             }
             resample_particles();
         } else {
-            // Failsafe: All particles died (tracking error or hallucinated board state). Reboot.
-            particles.clear();
-            initialize_particles();
+            // Second pass: allow one wildcard blank substitution per particle.
+            // Recovers from the common case where a blank was played but tracking drifted.
+            double wildcard_weight = 0.0;
+            for (auto& p : particles) {
+                // All weights are already 0.0 from the first loop above.
+                if (particle_contains_tiles_with_wildcard(p, played_tiles)) {
+                    p.weight = 1.0;
+                    wildcard_weight += 1.0;
+                }
+            }
+            if (wildcard_weight > 0.0) {
+                for (auto& p : particles) p.weight /= wildcard_weight;
+                resample_particles();
+            } else {
+                // True degeneracy: no recovery possible. Full reboot.
+                particles.clear();
+                initialize_particles();
+            }
         }
     }
 
@@ -172,6 +187,55 @@ namespace spectre {
 
     const std::vector<char>& Spy::getUnseenPool() const {
         return unseen_pool;
+    }
+
+    // Softer check: same as particle_contains_tiles but allows exactly one tile in the
+    // particle to substitute for a required tile it cannot otherwise satisfy (wildcard blank).
+    // Stack-only: local int[27] copy of rack counts, zero allocation.
+    bool Spy::particle_contains_tiles_with_wildcard(const Particle& p, const std::string& required_tiles) const {
+        int p_counts[27] = {0};
+        for (int i = 0; i < p.rack_size; i++) {
+            char ch = p.rack[i];
+            if (ch == '?') p_counts[26]++;
+            else if (ch >= 'A' && ch <= 'Z') p_counts[ch - 'A']++;
+        }
+
+        bool wildcard_used = false;
+
+        for (char ch : required_tiles) {
+            bool isBlank = (ch >= 'a' && ch <= 'z');
+            if (isBlank) {
+                if (p_counts[26] > 0) {
+                    p_counts[26]--;
+                } else if (!wildcard_used) {
+                    // Consume any available tile as wildcard
+                    bool found = false;
+                    for (int i = 0; i < 26; i++) {
+                        if (p_counts[i] > 0) { p_counts[i]--; wildcard_used = true; found = true; break; }
+                    }
+                    if (!found) return false;
+                } else {
+                    return false;
+                }
+            } else {
+                int idx = ch - 'A';
+                if (idx >= 0 && idx < 26 && p_counts[idx] > 0) {
+                    p_counts[idx]--;
+                } else if (p_counts[26] > 0) {
+                    p_counts[26]--;
+                } else if (!wildcard_used) {
+                    // Consume any available tile as wildcard
+                    bool found = false;
+                    for (int i = 0; i < 26; i++) {
+                        if (p_counts[i] > 0) { p_counts[i]--; wildcard_used = true; found = true; break; }
+                    }
+                    if (!found) return false;
+                } else {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     bool Spy::particle_contains_tiles(const Particle& p, const std::string& required_tiles) const {

@@ -77,8 +77,10 @@ Move SpectrePlayer::getMove(const GameState& state, const Board& bonusBoard, con
     bestCand.score = 0;
 
     // 2. DECISION FORK
+    static constexpr int PRE_ENDGAME_THRESHOLD = 14;
+
     if (state.bag.empty()) {
-        // --- ENDGAME (The Judge) ---
+        // --- ENDGAME (The Judge: perfect-information minimax) ---
         std::vector<char> inferredOppChars;
         const std::vector<char>& rawPool = spy.getUnseenPool();
 
@@ -102,6 +104,11 @@ Move SpectrePlayer::getMove(const GameState& state, const Board& bonusBoard, con
         }
 
         bestCand = spectre::Judge::solveEndgame(state.board, bonusBoard, me.rack, oppRack, gDictionary);
+    }
+    else if ((int)state.bag.size() <= PRE_ENDGAME_THRESHOLD) {
+        // --- PRE-ENDGAME (The Judge: stochastic minimax over sampled opponent racks) ---
+        // MCTS cannot reason about tile-counting or tempo in this phase.
+        bestCand = spectre::Judge::solvePreEndgame(state.board, bonusBoard, me.rack, spy, gDictionary);
     }
     else {
         // --- MIDGAME (The Vanguard + Zero Allocation Root Generator) ---

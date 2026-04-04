@@ -49,5 +49,18 @@ namespace kernel {
         }
 
         static void updateWeights(const spectre::TileTracker& tracker) { (void)tracker; }
+
+        // Compute equity of a leave represented as counts[27] (indices 0-25 = A-Z, 26 = blank).
+        // Uses Quackle CSW single-tile superleave baseline. O(27), zero allocation.
+        static inline float computeLeaveEquity(const int* leaveCounts) {
+            static constexpr float SUPERLEAVE[27] = {
+                1.0f, -3.5f, -0.5f,  0.0f,  4.0f, -2.0f, -2.0f,  0.5f, -0.5f, -3.0f,
+               -2.5f, -1.0f, -1.0f,  0.5f, -1.5f, -1.5f,-11.5f,  1.5f,  7.5f, -1.0f,
+               -3.0f, -5.5f, -4.0f, -3.5f, -2.0f, -2.0f, 24.0f
+            };
+            float v = 0.0f;
+            for (int i = 0; i < 27; i++) v += (float)leaveCounts[i] * SUPERLEAVE[i];
+            return v;
+        }
     };
 }
