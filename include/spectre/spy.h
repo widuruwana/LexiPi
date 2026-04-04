@@ -1,6 +1,5 @@
 #pragma once
 
-#include "opponent_model.h"
 #include "../engine/board.h"
 #include "../engine/rack.h"
 #include "../engine/tiles.h"
@@ -17,42 +16,33 @@ namespace spectre {
         double weight;
     };
 
-    // =========================================================
-    // THE SPY: Particle Filter Opponent Model
-    // =========================================================
-    // Novel contribution: Uses Sequential Monte Carlo to maintain
-    // a belief distribution over opponent rack compositions.
-    //
-    // Implements OpponentModel interface for clean ablation:
-    //   Spy vs UniformOpponentModel measures the value of inference.
-    // =========================================================
-
-    class Spy : public OpponentModel {
+    class Spy {
     public:
+        // Changed to constexpr to avoid copy-assignment deletion issues during refactoring
         static constexpr int PARTICLE_COUNT = 1000;
 
         Spy();
-        ~Spy() override = default;
+        ~Spy() = default;
 
-        // --- OpponentModel Interface ---
-        void updateGroundTruth(const LetterBoard& board,
-                                const TileRack& myRack,
-                                const std::vector<Tile>& bag) override;
+        // Updates the unseen pool based on absolute knowns (Board + My Rack + Bag)
+        void updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const std::vector<Tile>& bag);
 
-        void observeOpponentMove(const Move& move,
-                                  const LetterBoard& preMoveBoard) override;
+        // Observes the opponent's move, comparing it to the pre-move board to find exactly which tiles left their rack
+        void observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard);
 
-        std::vector<char> sampleOpponentRack() const override;
-        const std::vector<char>& getUnseenPool() const override;
-        const char* name() const override { return "ParticleFilter"; }
+        // Samples a random particle uniformly to generate a hypothetical opponent rack for Vanguard
+        std::vector<char> sampleParticleRack() const;
+
+        const std::vector<char>& getUnseenPool() const;
 
     private:
         std::vector<Particle> particles;
         std::vector<char> unseen_pool;
 
+        // Internal Helpers
         void initialize_particles();
         void resample_particles();
         bool particle_contains_tiles(const Particle& p, const std::string& required_tiles) const;
     };
 
-} // namespace spectre
+}

@@ -7,8 +7,8 @@
 
 namespace spectre {
 
-    Treasurer::Treasurer(LeaveEvaluator* le) : leaveEval(le) {
-        for (int i = 0; i < 27; i++) turn_deltas[i] = 0.0f;
+    Treasurer::Treasurer() {
+        for(int i = 0; i < 27; i++) turn_deltas[i] = 0.0f;
         current_gamma = 0.0f;
         current_market_volatility = 0.0f;
     }
@@ -19,7 +19,6 @@ namespace spectre {
 
         for (int i = 0; i < 27; i++) turn_deltas[i] = 0.0f;
 
-        // Topology-driven adjustments
         if (topo.open_anchors < 5) {
             turn_deltas['S' - 'A'] -= 4.0f;
         } else if (topo.open_anchors > 20) {
@@ -33,18 +32,16 @@ namespace spectre {
             turn_deltas[26] -= 5.0f;
         }
 
-        // Junk tile penalty scaled by game phase
         const int junk_indices[] = {'Q'-'A', 'Z'-'A', 'J'-'A', 'X'-'A'};
         for (int idx : junk_indices) {
             turn_deltas[idx] -= (current_gamma * 3.0f);
         }
 
-        // Bag composition adjustments
-        int bagVowels = 0, bagConsonants = 0;
+        int bagVowels = 0;
+        int bagConsonants = 0;
         for (const auto& t : bag) {
             if (t.letter == '?') continue;
-            if (t.letter == 'A' || t.letter == 'E' || t.letter == 'I' ||
-                t.letter == 'O' || t.letter == 'U') {
+            if (t.letter == 'A' || t.letter == 'E' || t.letter == 'I' || t.letter == 'O' || t.letter == 'U') {
                 bagVowels++;
             } else {
                 bagConsonants++;
@@ -74,14 +71,15 @@ namespace spectre {
             else if (t.letter >= 'A' && t.letter <= 'Z') leaveCounts[t.letter - 'A']++;
         }
 
-        // Subtract placed tiles (only from empty squares)
-        int r = move.row, c = move.col;
+        // Subtract placed tiles, strictly verifying they came from the rack and not the board
+        int r = move.row;
+        int c = move.col;
         int dr = move.horizontal ? 0 : 1;
         int dc = move.horizontal ? 1 : 0;
 
         for (int i = 0; i < 15 && move.word[i] != '\0' && r < 15 && c < 15; i++) {
             char letter = move.word[i];
-            if (state.board[r][c] == ' ') {
+            if (state.board[r][c] == ' ') { // Only subtract if square was empty
                 bool isBlank = (letter >= 'a' && letter <= 'z');
                 if (isBlank) {
                     if (leaveCounts[26] > 0) leaveCounts[26]--;
@@ -90,17 +88,16 @@ namespace spectre {
                     if (idx >= 0 && idx < 26 && leaveCounts[idx] > 0) {
                         leaveCounts[idx]--;
                     } else if (leaveCounts[26] > 0) {
-                        leaveCounts[26]--;
+                        leaveCounts[26]--; // Fallback to blank
                     }
                 }
             }
-            r += dr; c += dc;
+            r += dr;
+            c += dc;
         }
 
-        // Baseline from plugged LeaveEvaluator
-        float base_equity = leaveEval->evaluate(leaveCounts);
+        float base_equity = get_quackle_baseline(leaveCounts);
 
-        // Dynamic context layer (Treasurer's unique contribution)
         float dynamic_equity = 0.0f;
         for (int i = 0; i < 26; i++) {
             dynamic_equity += (leaveCounts[i] * turn_deltas[i]);
@@ -115,6 +112,34 @@ namespace spectre {
         float temperature = 15.0f + ((float)bagSize * 0.5f);
         if (temperature < 1.0f) temperature = 1.0f;
         return 1.0f / (1.0f + std::exp(-projected_spread / temperature));
+    }
+
+    float Treasurer::get_quackle_baseline(const int* leaveCounts) const {
+        static const float STATIC_LEAVES[27] = {
+             1.0f,  -3.5f, -0.5f,  0.0f,  4.0f,
+            -2.0f,  -2.0f,  0.5f, -0.5f, -3.0f,
+            -2.5f,  -1.0f, -1.0f,  0.5f, -1.5f,
+            -1.5f, -11.5f,  1.5f,  7.5f, -1.0f,
+            -3.0f,  -5.5f, -4.0f, -3.5f, -2.0f,
+            -2.0f,  24.0f
+        };
+
+        float val = 0.0f;
+        for (int i = 0; i < 27; i++) {
+            val += leaveCounts[i] * STATIC_LEAVES[i];
+        }
+
+        int v = leaveCounts['A'-'A'] + leaveCounts['E'-'A'] + leaveCounts['I'-'A'] + leaveCounts['O'-'A'] + leaveCounts['U'-'A'];
+        int c = 0;
+        for(int i = 0; i < 26; i++) c += leaveCounts[i];
+        c -= v;
+
+        if (v == 0 && c > 0) val -= 5.0f;
+        if (c == 0 && v > 0) val -= 5.0f;
+        if (v > 4) val -= 4.0f;
+        if (c > 5) val -= 4.0f;
+
+        return val;
     }
 
     float Treasurer::calculate_gamma(int scoreDiff) const {
@@ -143,9 +168,6 @@ namespace spectre {
         std::cout << "[TREASURER] Move: " << move.word
                   << " | Score: " << moveScore
                   << " | NAV: " << std::fixed << std::setprecision(2) << final_nav
-                  << " | Gamma: " << current_gamma
-                  << " | Leaves: " << leaveEval->name()
-                  << std::endl;
+                  << " | Gamma: " << current_gamma << std::endl;
     }
-
-} // namespace spectre
+}

@@ -1,86 +1,65 @@
-cmake_minimum_required(VERSION 3.16)
-project(AlternatePi VERSION 0.6 LANGUAGES CXX)
+cmake_minimum_required(VERSION 4.0)
+project(scrabblePi)
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
-
-# =========================================================
-# SOURCE FILES - Organized by module
-# =========================================================
-
-# Engine (Core game logic - no AI dependency)
-set(ENGINE_SOURCES
-    src/engine/board.cpp
-    src/engine/dictionary.cpp
-    src/engine/game_director.cpp
-    src/engine/mechanics.cpp
-    src/engine/rack.cpp
-    src/engine/referee.cpp
-    src/engine/tiles.cpp
-)
-
-# Kernel (Move generation - no spectre dependency)
-set(KERNEL_SOURCES
-    src/kernel/greedy_engine.cpp
-    src/kernel/move_generator.cpp
-)
-
-# Spectre (AI intelligence layer)
-set(SPECTRE_SOURCES
-    src/spectre/engine_config.cpp
-    src/spectre/general.cpp
-    src/spectre/judge.cpp
-    src/spectre/leave_evaluator.cpp
-    src/spectre/opponent_model.cpp
-    src/spectre/search_strategy.cpp
-    src/spectre/spy.cpp
-    src/spectre/treasurer.cpp
-    src/spectre/vanguard.cpp
-)
-
-# Interface
-set(INTERFACE_SOURCES
-    src/interface/renderer.cpp
-)
-
-# Player Controllers
-set(PLAYER_SOURCES
-    src/ai_player.cpp
-    src/human_player.cpp
-    src/choices.cpp
-)
-
-# Game Modes
-set(MODE_SOURCES
-    src/modes/AiAi/aiai.cpp
-    src/modes/Home/home.cpp
-    src/modes/PvE/pve.cpp
-    src/modes/PvP/pvp.cpp
-)
-
-# =========================================================
-# BUILD TARGET
-# =========================================================
-
-add_executable(lexi_pi
-    src/main.cpp
-    ${ENGINE_SOURCES}
-    ${KERNEL_SOURCES}
-    ${SPECTRE_SOURCES}
-    ${INTERFACE_SOURCES}
-    ${PLAYER_SOURCES}
-    ${MODE_SOURCES}
-)
-
-# Threading support
-find_package(Threads REQUIRED)
-target_link_libraries(lexi_pi Threads::Threads)
-
-# Optimization flags
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(lexi_pi PRIVATE -O3 -march=native -flto)
-    target_link_options(lexi_pi PRIVATE -flto)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+if(MSVC)
+    add_compile_options(/arch:AVX2)
+else()
+    add_compile_options(-O3 -march=native)
 endif()
+
+add_executable(scrabblePi src/engine/board.cpp
+        include/engine/board.h
+        include/engine/tiles.h
+        src/engine/tiles.cpp
+        include/engine/rack.h
+        src/engine/rack.cpp
+        src/main.cpp
+        include/move.h
+        src/choices.cpp
+        include/choices.h
+        src/modes/PvP/pvp.cpp
+        include/modes/PvP/pvp.h
+        src/modes/Home/home.cpp
+        include/modes/Home/home.h
+        include/player_controller.h
+        src/human_player.cpp
+        include/human_player.h
+        include/engine/dictionary.h
+        src/engine/dictionary.cpp
+        include/kernel/heuristics.h
+        include/kernel/fast_constraints.h
+        include/ai_player.h
+        src/ai_player.cpp
+        include/modes/PvE/pve.h
+        src/modes/PvE/pve.cpp
+        src/modes/AiAi/aiai.cpp
+        include/modes/AiAi/aiai.h
+        include/tile_tracker.h
+        include/kernel/move_generator.h
+        src/kernel/move_generator.cpp
+        include/spectre/vanguard.h
+        src/spectre/vanguard.cpp
+        include/spectre/spy.h
+        src/spectre/spy.cpp
+        include/spectre/judge.h
+        src/spectre/judge.cpp
+        include/spectre/logger.h
+        include/engine/types.h
+        include/engine/state.h
+        include/engine/referee.h
+        src/engine/referee.cpp
+        include/interface/renderer.h
+        src/interface/renderer.cpp
+        include/engine/mechanics.h
+        src/engine/mechanics.cpp
+        include/engine/game_director.h
+        src/engine/game_director.cpp
+        include/spectre/treasurer.h
+        src/spectre/treasurer.cpp
+        include/kernel/greedy_engine.h
+        src/kernel/greedy_engine.cpp
+        include/spectre/general.h
+        src/spectre/general.cpp
+)
