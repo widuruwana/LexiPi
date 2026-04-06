@@ -243,7 +243,7 @@ vector<string> crossWordList(const LetterBoard &letters, const LetterBoard &oldL
 
     }
 
-    cout << "No of cross words found: " << words.size() << "\n";
+    //cout << "No of cross words found: " << words.size() << "\n";
 
     return words;
 }

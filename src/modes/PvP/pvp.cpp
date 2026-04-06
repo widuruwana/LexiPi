@@ -16,19 +16,22 @@
 #include "../../../include/modes/Home/home.h"
 #include "../../../include/interface/renderer.h"
 #include "../../../include/engine/mechanics.h"
+#include "../../../include/interface/console_observer.h"
 
 using namespace std;
 
 void runPvP() {
-    if (gDictionary.nodes.empty()) gDictionary.loadFromFile("csw24.txt");
+    if (gDictionary.nodes.empty()) gMutableDictionary.loadFromFile("csw24.txt");
 
     HumanPlayer p1;
     HumanPlayer p2;
     Board b = createBoard();
 
     GameDirector::Config cfg;
-    cfg.verbose = true;
+    ConsoleObserver obs;
+    cfg.observer = &obs;
     cfg.allowChallenge = true;
+    cfg.sixPassEndsGame = true;
 
     GameDirector director(&p1, &p2, b, cfg);
     director.run();

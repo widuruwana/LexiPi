@@ -5,7 +5,8 @@
 
 using namespace std;
 
-Dictionary gDictionary;
+Dictionary gMutableDictionary;
+const Dictionary& gDictionary = gMutableDictionary;
 
 // We use index 26 as the 'Seperator'
 const int SEPERATOR = 26;

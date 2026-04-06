@@ -17,7 +17,7 @@ int main() {
 
         char mode;
 
-        if (!gDictionary.loadFromFile("csw24.txt")) {
+        if (!gMutableDictionary.loadFromFile("csw24.txt")) {
             cerr << "ERROR: A valid Dictionary isn't found!" << endl;
             // Proceeding might be dangerous but allowed for UI testing
         }

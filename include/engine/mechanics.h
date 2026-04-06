@@ -13,19 +13,27 @@ static constexpr int MECHANICS_POINTS[] = {
 
 namespace Mechanics {
 
-    // SAFE & FAST Point Lookup
+    /**
+     * @brief Evaluates the raw point value of a single Scrabble tile.
+     * @pre `c` is a valid ASCII character.
+     * @post Returns 0 for blanks (lowercase letters or '?') and correct points for 'A'-'Z'.
+     */
     static inline int getPointValue(char c) {
-        // Handle blanks, spaces, and safety checks
-        if (c < 'A' || c > 'z') return 0; // Filter non-alpha (includes '?' and ' ')
+        // Lowercase letters on the board represent played blanks. They score 0.
+        if (c >= 'a' && c <= 'z') return 0;
 
-        // Normalize to 0-25
-        char upper = (c >= 'a') ? (c ^ 0x20) : c;
-        if (upper < 'A' || upper > 'Z') return 0;
+        // Filter non-alpha symbols and unplayed blanks ('?', ' ')
+        if (c < 'A' || c > 'Z') return 0;
 
-        return MECHANICS_POINTS[upper - 'A'];
+        return MECHANICS_POINTS[c - 'A'];
     }
 
-    // --- TEMPLATED SCORER ---
+    /**
+     * @brief Computes the true Scrabble score of a full word placement, including all cross-words and board multipliers.
+     * @pre `move.word` MUST contain the FULL overlapping word (not just differential tiles).
+     * @post Returns the exact integer score. Leaves the board and move parameters completely unmodified.
+     * @invariant Zero heap allocations. $O(L)$ complexity where L is word length.
+     */
     template <bool IS_HORIZONTAL>
     static inline int calculateTrueScoreFast(const kernel::MoveCandidate &move,
                                              const LetterBoard& letters,
@@ -45,21 +53,17 @@ namespace Mechanics {
         constexpr int pdr = IS_HORIZONTAL ? 1 : 0; // Perpendicular dr
         constexpr int pdc = IS_HORIZONTAL ? 0 : 1; // Perpendicular dc
 
-        // Iterate through the CANDIDATE word (which is the FULL word)
-        for (char letter : move.word) {
-            if (letter == '\0') break;
+        for (int i = 0; i < 15 && move.word[i] != '\0'; i++) {
+            char letter = move.word[i];
             wordLen++;
 
-            // 1. Calculate Score for this letter (Safe Lookup)
             int letterScore = getPointValue(letter);
 
-            // 2. Check Board Status
+            // If square is empty, it's a newly placed tile
             if (letters[r][c] == ' ') {
-                // TILE PLACEMENT (Empty Square)
                 tilesPlacedCount++;
                 CellType bonus = bonusBoard[r][c];
 
-                // Apply Board Bonuses
                 if (bonus != CellType::Normal) {
                     if (bonus == CellType::DLS) letterScore *= 2;
                     else if (bonus == CellType::TLS) letterScore *= 3;
@@ -73,7 +77,6 @@ namespace Mechanics {
                 else if (r+pdr < 15 && letters[r+pdr][c+pdc] != ' ') hasNeighbor = true;
 
                 if (hasNeighbor) {
-                    // Backtrack to start of cross-word
                     int currR = r; int currC = c;
                     while (currR - pdr >= 0 && currC - pdc >= 0 && letters[currR-pdr][currC-pdc] != ' ') {
                         currR -= pdr; currC -= pdc;
@@ -82,26 +85,19 @@ namespace Mechanics {
                     int crossScore = 0;
                     int crossMult = 1;
 
-                    // Forward Scan of Cross Word
                     while (currR < 15 && currC < 15) {
                         char cellLetter = letters[currR][currC];
-
-                        // If empty AND it's not the tile we are placing right now, stop.
                         if (cellLetter == ' ' && (currR != r || currC != c)) break;
 
                         int pts = 0;
                         if (currR == r && currC == c) {
-                            // This is the tile we just placed
                             pts = getPointValue(letter);
-
                             CellType crossBonus = bonusBoard[currR][currC];
                             if (crossBonus == CellType::DLS) pts *= 2;
                             else if (crossBonus == CellType::TLS) pts *= 3;
-
                             if (crossBonus == CellType::DWS) crossMult *= 2;
                             else if (crossBonus == CellType::TWS) crossMult *= 3;
                         } else {
-                            // Existing tile
                             pts = getPointValue(cellLetter);
                         }
 
@@ -110,11 +106,9 @@ namespace Mechanics {
                     }
                     totalScore += (crossScore * crossMult);
                 }
-            } else {
-                // EXISTING TILE (Board not empty)
-                // We use the letterScore derived from the word, but without bonuses
-                // Note: getPointValue is safe, so we don't need to read 'letters[r][c]' for score
             }
+            // If square is NOT empty, it's an existing tile.
+            // getPointValue(letter) automatically handles the raw score safely without bonuses.
 
             mainWordScore += letterScore;
             r += dr; c += dc;
@@ -126,15 +120,22 @@ namespace Mechanics {
         return totalScore;
     }
 
-    // Function Declarations
     void applyMove(GameState& state, const Move& move, int score);
+    /**
+     * @brief High-performance state mutation specifically for MCTS rollouts.
+     * @pre `cand.word` is the full overlapping string.
+     * @post Mutates board and rack correctly without differential string translation.
+     */
+    void applyCandidateMove(GameState& state, const kernel::MoveCandidate& cand);
     void commitSnapshot(GameState& backup, const GameState& current);
     void restoreSnapshot(GameState& current, const GameState& backup);
     bool attemptExchange(GameState& state, const Move& move);
     void applySixPassPenalty(GameState& state);
     void applyEmptyRackBonus(GameState& state, int winnerIdx);
 
-    // Wrapper
+    /**
+     * @brief Wrapper to route TrueScore calculation at compile time based on orientation.
+     */
     static inline int calculateTrueScore(const kernel::MoveCandidate &move, const LetterBoard& letters, const Board &bonusBoard) {
         if (move.isHorizontal)
             return calculateTrueScoreFast<true>(move, letters, bonusBoard);

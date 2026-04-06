@@ -58,8 +58,13 @@ add_executable(scrabblePi src/engine/board.cpp
         src/engine/game_director.cpp
         include/spectre/treasurer.h
         src/spectre/treasurer.cpp
+        include/spectre/spectre_engine.h
+        src/spectre/spectre_engine.cpp
         include/kernel/greedy_engine.h
         src/kernel/greedy_engine.cpp
         include/spectre/general.h
         src/spectre/general.cpp
+        include/interface/console_observer.h
+        include/spectre/spectre_types.h
+        src/spectre/council.cpp
 )

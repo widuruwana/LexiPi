@@ -38,7 +38,7 @@ public:
     }
 
     template <typename Consumer>
-    static void generate_raw(const LetterBoard &board, int* rackCounts, Dictionary &dict,
+    static void generate_raw(const LetterBoard &board, int* rackCounts, const Dictionary &dict,
                              Consumer& consumer) {
         // 1. STACK ALLOCATION (Zero-Cost, L1 Cache Hot)
         RowConstraint rows[15];
@@ -81,7 +81,7 @@ public:
     // STANDARD INTERFACE (TileRack Wrapper)
     // -------------------------------------------------------------------------
     template <typename Consumer>
-    static void generate_custom(const LetterBoard &board, const TileRack &rack, Dictionary &dict,
+    static void generate_custom(const LetterBoard &board, const TileRack &rack, const Dictionary &dict,
                                 Consumer& consumer) {
         int rackCounts[27] = {0};
         for (const Tile& t : rack) {
@@ -96,7 +96,7 @@ public:
     // Used by Speedi_Pi where we actually want a sorted vector of all moves.
     static vector<MoveCandidate> generate(const LetterBoard &board,
                                           const TileRack &rack,
-                                          Dictionary &dict,
+                                          const Dictionary &dict,
                                           bool useThreading = true);
 
 private:
@@ -121,7 +121,7 @@ private:
     template <typename Consumer>
     static bool genMovesGADDAG(int row, const LetterBoard &board, int *rackCounts,
                           const RowConstraint &constraints, bool isHorizontal,
-                          Dictionary& dict, Consumer& consumer) {
+                          const Dictionary& dict, Consumer& consumer) {
 
         // 1. READ ANCHORS DIRECTLY (Zero Setup)
         uint16_t anchorMask = constraints.anchorMask;
@@ -157,7 +157,7 @@ private:
     static bool goLeft(int row, int col, int node, const RowConstraint &constraints,
                   uint32_t rackMask, uint32_t pruningMask, int* rackCounts,
                   char *wordBuf, int wordLen, const LetterBoard &board,
-                  bool isHoriz, int anchorCol, Dictionary& dict, Consumer& consumer) {
+                  bool isHoriz, int anchorCol, const Dictionary& dict, Consumer& consumer) {
 
         // Check if we can turn around (switch to goRight)
         bool canStopGoingLeft = (col < 0) || (board[row][col] == ' ');
@@ -241,7 +241,7 @@ private:
     static bool goRight(int row, int col, int node, const RowConstraint &constraints,
                    uint32_t rackMask, uint32_t pruningMask, int* rackCounts,
                    char *wordBuf, int wordLen, const LetterBoard &board,
-                   bool isHoriz, int anchorCol, Dictionary& dict, Consumer& consumer) {
+                   bool isHoriz, int anchorCol, const Dictionary& dict, Consumer& consumer) {
 
         // 1. Found a Valid Word?
         if (dict.nodes[node].isEndOfWord) {

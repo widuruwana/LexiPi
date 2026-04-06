@@ -1,48 +1,42 @@
 #pragma once
 
 #include "../engine/board.h"
-#include "../engine/rack.h"
+#include "../../include/move.h"
+#include "../../include/engine/rack.h"
 #include "../engine/tiles.h"
-#include "../move.h"
 #include <vector>
-#include <array>
-#include <string>
+#include <random>
 
 namespace spectre {
 
     struct Particle {
-        std::array<char, 7> rack;
-        int rack_size;
+        std::vector<char> rack;
         double weight;
     };
 
     class Spy {
     public:
-        // Changed to constexpr to avoid copy-assignment deletion issues during refactoring
-        static constexpr int PARTICLE_COUNT = 1000;
-
         Spy();
-        ~Spy() = default;
 
-        // Updates the unseen pool based on absolute knowns (Board + My Rack + Bag)
-        void updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const std::vector<Tile>& bag);
+        TileRack inferOpponentRack() const;
+        void observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard, const Board& bonusBoard);
+        void updateGroundTruth(const LetterBoard& board, const TileRack& myRack, const TileBag& bag);
+        std::vector<char> generateWeightedRack() const;
 
-        // Observes the opponent's move, comparing it to the pre-move board to find exactly which tiles left their rack
-        void observeOpponentMove(const Move& move, const LetterBoard& preMoveBoard);
-
-        // Samples a random particle uniformly to generate a hypothetical opponent rack for Vanguard
-        std::vector<char> sampleParticleRack() const;
-
+        // [FIX] Expose the raw pool for direct Endgame access
         const std::vector<char>& getUnseenPool() const;
 
     private:
+        std::vector<char> unseenPool;
         std::vector<Particle> particles;
-        std::vector<char> unseen_pool;
+        const int PARTICLE_COUNT = 1000;
 
-        // Internal Helpers
-        void initialize_particles();
+        // Internal Logic
+        int findBestPossibleScore(const std::vector<char>& rack, const LetterBoard& board);
+
+        void initParticles();
+
         void resample_particles();
-        bool particle_contains_tiles(const Particle& p, const std::string& required_tiles) const;
     };
 
 }

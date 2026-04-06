@@ -1,19 +1,11 @@
 #pragma once
 
 #include "../engine/board.h"
+#include "spectre_types.h"
 #include "../move.h"
 #include "../engine/state.h"
-#include <vector>
 
 namespace spectre {
-
-    struct TopologyReport {
-        float openness;        // 0.0 (Closed/Choked) to 1.0 (Wide Open)
-        int open_anchors;      // Count of empty spots where a tile can be placed
-        int attackable_tws;    // Count of Triple Word Scores currently accessible
-        bool is_fractured;     // True if the board has bottlenecks (simplified)
-    };
-
     class General {
     public:
         General();

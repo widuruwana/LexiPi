@@ -16,11 +16,18 @@ using namespace kernel;
 
 namespace spectre {
 
-// --- TELEMETRY ---
+// ==============================================================================
+// GLOBALS & TELEMETRY
+// ==============================================================================
 static std::atomic<int> g_nodesVisited(0);
 static std::atomic<int> g_ttHits(0);
 
-// --- ZOBRIST HASHING (Static Initialization) ---
+// THE KILL SWITCH: Thread-local prevents data races if multiple games run concurrently
+static thread_local bool g_timeOut = false;
+
+// ==============================================================================
+// ZOBRIST HASHING (Transposition Table Keys)
+// ==============================================================================
 static uint64_t ZOBRIST_BOARD[15][15][27]; // 26 letters + 1 blank
 static uint64_t ZOBRIST_RACK_MY[27][10];   // Letter x Count
 static uint64_t ZOBRIST_RACK_OPP[27][10];
@@ -29,7 +36,7 @@ static bool g_hashInitialized = false;
 
 static void initZobrist() {
     if (g_hashInitialized) return;
-    std::mt19937_64 rng(12345); // Fixed seed for determinism
+    std::mt19937_64 rng(12345); // Fixed deterministic seed
 
     for(int r=0; r<15; r++)
         for(int c=0; c<15; c++)
@@ -50,7 +57,6 @@ uint64_t Judge::computeHash(const LetterBoard& board, int* myRack, int* oppRack,
     uint64_t h = 0;
     if (myTurn) h ^= ZOBRIST_TURN;
 
-    // Hash Board
     for(int r=0; r<15; r++) {
         for(int c=0; c<15; c++) {
             char ch = board[r][c];
@@ -61,7 +67,6 @@ uint64_t Judge::computeHash(const LetterBoard& board, int* myRack, int* oppRack,
         }
     }
 
-    // Hash Racks
     for(int i=0; i<27; i++) {
         if (myRack[i] > 0) h ^= ZOBRIST_RACK_MY[i][myRack[i]];
         if (oppRack[i] > 0) h ^= ZOBRIST_RACK_OPP[i][oppRack[i]];
@@ -69,8 +74,11 @@ uint64_t Judge::computeHash(const LetterBoard& board, int* myRack, int* oppRack,
     return h;
 }
 
+// ==============================================================================
+// CORE SOLVER
+// ==============================================================================
 kernel::MoveCandidate Judge::solveEndgame(const LetterBoard& board, const Board& bonusBoard,
-                         const TileRack& myRack, const TileRack& oppRack, Dictionary& dict) {
+                         const TileRack& myRack, const TileRack& oppRack, const Dictionary& dict) {
 
     initZobrist();
 
@@ -80,10 +88,12 @@ kernel::MoveCandidate Judge::solveEndgame(const LetterBoard& board, const Board&
         std::cout << "[JUDGE] ENDGAME SOLVER v2 (Transposition Table)" << std::endl;
     }
 
+    // Reset state for new search
     g_nodesVisited = 0;
     g_ttHits = 0;
+    g_timeOut = false;
 
-    // 1. Setup Racks
+    // 1. Array-based Rack Conversion (O(1) lookups during search)
     int myRackCounts[27] = {0};
     int oppRackCounts[27] = {0};
 
@@ -96,24 +106,15 @@ kernel::MoveCandidate Judge::solveEndgame(const LetterBoard& board, const Board&
         else if (isalpha(t.letter)) oppRackCounts[toupper(t.letter) - 'A']++;
     }
 
-    // 2. Setup Transposition Table
+    // Pre-allocate TT to prevent expensive mid-search heap reallocations
     std::unordered_map<uint64_t, TTEntry> transTable;
-    // Pre-allocate bucket count to prevent resize during recursion
     transTable.reserve(100000);
 
-    // 3. Iterative Deepening (Optional, but good for ordering)
-    // For endgame, we usually just go for max depth allowed by time.
-    int maxDepth = 60; // Effectively infinite for Scrabble
+    // Stopwatch Initialization
     auto startTime = steady_clock::now();
-    int timeBudgetMs = 5000; // 5 seconds for endgame calculation
+    int timeBudgetMs = 59000; // 59 Second Hard Limit
 
-    // 4. Initial Call
-    // We pass a copy of the board to start the recursion
-    LetterBoard mutableBoard = board;
-
-    // Root Level Move Generation (to return the actual Move object)
-    // We can't just call minimax because we need to know WHICH move gave the value.
-
+    // 2. Generate Root Moves
     vector<MoveCandidate> rootMoves;
     rootMoves.reserve(100);
     auto rootConsumer = [&](MoveCandidate& cand, int* leave) -> bool {
@@ -122,61 +123,71 @@ kernel::MoveCandidate Judge::solveEndgame(const LetterBoard& board, const Board&
     };
     MoveGenerator::generate_raw(board, myRackCounts, dict, rootConsumer);
 
-    // Add Voluntary Pass
+    // Always inject a voluntary pass
     MoveCandidate passMove;
     passMove.word[0] = '\0';
     passMove.score = 0;
     rootMoves.push_back(passMove);
 
-    // Sort by static score
+    // Heuristic Sorting: Try mathematically heavy moves first to maximize alpha cutoffs
     for(auto& m : rootMoves) m.score = Mechanics::calculateTrueScore(m, board, bonusBoard);
     sort(rootMoves.begin(), rootMoves.end(), [](const MoveCandidate& a, const MoveCandidate& b) {
         return a.score > b.score;
     });
 
-    MoveCandidate bestMove = rootMoves[0];
+    MoveCandidate bestMove = rootMoves[0]; // Fallback if everything times out instantly
     int bestVal = -999999;
     int alpha = -999999;
     int beta = 999999;
 
+    // 3. Root Search Loop
     for (const auto& move : rootMoves) {
-        // Clone State
+
+        // ROOT KILL SWITCH: Prevent launching new deep searches if time is up
+        if (g_timeOut) {
+            std::cout << "[JUDGE] 60-Second Hard Limit Reached. Aborting search." << std::endl;
+            break;
+        }
+
         LetterBoard nextBoard = board;
         int nextMyRack[27];
         memcpy(nextMyRack, myRackCounts, sizeof(nextMyRack));
 
-        // Apply
         if (move.word[0] != '\0') {
             if (!applyMove(nextBoard, move, nextMyRack)) continue;
         }
 
-        // Check for "Going Out" immediately at root
+        // Check for immediate "Going Out" victory at root
         bool rackEmpty = true;
         for(int i=0; i<27; i++) if(nextMyRack[i]>0) { rackEmpty=false; break; }
 
         int currentScore = move.score;
 
         if (rackEmpty) {
-            // Calculate Bonus
             int bonus = 0;
             for(int i=0; i<26; i++) bonus += oppRackCounts[i] * Heuristics::getTileValue((char)('A'+i));
             currentScore += (2 * bonus);
-            // This is likely the best possible move, but we check logic anyway
             if (currentScore > bestVal) { bestVal = currentScore; bestMove = move; }
-            continue;
+            continue; // End of this branch
         }
 
-        // Recursion (Opponent's Turn)
+        // Launch recursive deep dive for opponent's response
         int val = currentScore - minimax(nextBoard, bonusBoard, oppRackCounts, nextMyRack, dict,
                                         -beta, -alpha, false, 0, 1,
                                         startTime, timeBudgetMs, transTable);
+
+        // POST-RECURSION KILL SWITCH: Do not update best move if the data is corrupted by timeout
+        if (g_timeOut) {
+            std::cout << "[JUDGE] 60-Second Hard Limit Reached mid-branch. Reverting to best safe move." << std::endl;
+            break;
+        }
 
         if (val > bestVal) {
             bestVal = val;
             bestMove = move;
         }
         alpha = std::max(alpha, val);
-        if (alpha >= beta) break;
+        if (alpha >= beta) break; // Alpha-Beta Cutoff
     }
 
     std::cout << "[JUDGE] Complete. Nodes: " << g_nodesVisited << " | TT Hits: " << g_ttHits
@@ -185,9 +196,12 @@ kernel::MoveCandidate Judge::solveEndgame(const LetterBoard& board, const Board&
     return bestMove;
 }
 
+// ==============================================================================
+// RECURSIVE MINIMAX (Negamax Formulation)
+// ==============================================================================
 int Judge::minimax(LetterBoard& board, const Board& bonusBoard,
                    int* currentRackCounts, int* otherRackCounts,
-                   Dictionary& dict,
+                   const Dictionary& dict,
                    int alpha, int beta,
                    bool maximizingPlayer,
                    int passesInARow,
@@ -196,30 +210,34 @@ int Judge::minimax(LetterBoard& board, const Board& bonusBoard,
                    int timeBudgetMs,
                    std::unordered_map<uint64_t, TTEntry>& transTable) {
 
+    // INSTANT UNWIND: If flag is set globally, collapse the stack
+    if (g_timeOut) return 0;
     g_nodesVisited++;
 
-    // 1. Time Check (Every 4096 nodes)
-    if ((g_nodesVisited & 0xFFF) == 0) {
-        if (duration_cast<milliseconds>(steady_clock::now() - startTime).count() > timeBudgetMs)
-            return alpha; // Timeout fallback
+    // HIGH FREQUENCY PULSE: Check clock every 64 nodes (Bitwise AND is virtually 0 CPU cycles)
+    if ((g_nodesVisited & 0x3F) == 0) {
+        if (duration_cast<milliseconds>(steady_clock::now() - startTime).count() > timeBudgetMs) {
+            g_timeOut = true;
+            return 0;
+        }
     }
 
-    // 2. Transposition Table Lookup
+    // 1. TT Lookup
     int alphaOrig = alpha;
     uint64_t hash = computeHash(board, currentRackCounts, otherRackCounts, maximizingPlayer);
 
     if (transTable.count(hash)) {
         const TTEntry& tt = transTable[hash];
-        if (tt.depth >= (60 - depth)) { // Simple depth check
+        if (tt.depth >= (60 - depth)) {
             g_ttHits++;
-            if (tt.flag == 0) return tt.value; // Exact
-            if (tt.flag == 1) alpha = std::max(alpha, tt.value); // LowerBound
-            else if (tt.flag == 2) beta = std::min(beta, tt.value); // UpperBound
+            if (tt.flag == 0) return tt.value;
+            if (tt.flag == 1) alpha = std::max(alpha, tt.value);
+            else if (tt.flag == 2) beta = std::min(beta, tt.value);
             if (alpha >= beta) return tt.value;
         }
     }
 
-    // 3. Move Generation
+    // 2. Generate Moves
     vector<MoveCandidate> moves;
     moves.reserve(64);
     auto recursiveConsumer = [&](MoveCandidate& cand, int* leave) -> bool {
@@ -228,55 +246,52 @@ int Judge::minimax(LetterBoard& board, const Board& bonusBoard,
     };
     MoveGenerator::generate_raw(board, currentRackCounts, dict, recursiveConsumer);
 
-    // 4. Terminal State: Double Pass
-    if (moves.empty()) {
-        passesInARow++;
-        // If I must pass, I add a "dummy" pass move implicitly by doing nothing here
-        // But if moves IS empty, we fall through to the pass logic.
-    } else {
-        passesInARow = 0; // Reset if we have moves
+    // Redundant time check to catch generator hangs
+    if (duration_cast<milliseconds>(steady_clock::now() - startTime).count() > timeBudgetMs) {
+        g_timeOut = true;
+        return 0;
     }
 
+    // 3. Terminal State Check (Double Pass)
+    if (moves.empty()) passesInARow++;
+    else passesInARow = 0;
+
     if (passesInARow >= 2) {
-        // GAME OVER by Passes
+        // Evaluate Unplayed Tile Penalties
         int myRem = 0, oppRem = 0;
         for(int i=0; i<26; i++) {
             int val = Heuristics::getTileValue((char)('A'+i));
             myRem += currentRackCounts[i] * val;
             oppRem += otherRackCounts[i] * val;
         }
-        // Net spread adjustment: I lose myRem, Opponent loses oppRem.
-        // Relative value: (OppScore - oppRem) - (MyScore - myRem) ???
-        // Standard rule: Scores are reduced by remaining tiles.
-        // Marginal Gain = -myRem - (-oppRem) = oppRem - myRem.
-        return (oppRem - myRem);
+        return (oppRem - myRem); // Net spread of penalty
     }
 
-    // Add Voluntary Pass if not forced (tactical pass)
     if (!moves.empty()) {
         MoveCandidate pass;
         pass.word[0] = '\0'; pass.score = 0;
         moves.push_back(pass);
     } else {
-        // If moves is empty, we effectively executed a pass above.
-        // We recurse with pass.
-        return -minimax(board, bonusBoard, otherRackCounts, currentRackCounts, dict,
+        // Forced Pass branch
+        int val = -minimax(board, bonusBoard, otherRackCounts, currentRackCounts, dict,
                         -beta, -alpha, !maximizingPlayer, passesInARow, depth+1,
                         startTime, timeBudgetMs, transTable);
+        if (g_timeOut) return 0;
+        return val;
     }
 
-    // 5. Sorting & Search
+    // Sort generated moves for optimal Alpha-Beta pruning
     for(auto& m : moves) m.score = Mechanics::calculateTrueScore(m, board, bonusBoard);
     sort(moves.begin(), moves.end(), [](const MoveCandidate& a, const MoveCandidate& b){ return a.score > b.score; });
 
     int bestVal = -999999;
 
+    // 4. Recursive Evaluation
     for (const auto& move : moves) {
-        LetterBoard nextBoard = board; // Copy board (efficient enough for 15x15)
+        LetterBoard nextBoard = board;
         int nextRack[27];
         memcpy(nextRack, currentRackCounts, sizeof(nextRack));
 
-        // Apply Move
         if (move.word[0] != '\0') {
             if (!applyMove(nextBoard, move, nextRack)) continue;
         }
@@ -285,7 +300,6 @@ int Judge::minimax(LetterBoard& board, const Board& bonusBoard,
         bool rackEmpty = true;
         for(int i=0; i<27; i++) if(nextRack[i]>0) { rackEmpty=false; break; }
 
-        // CHECK MATE (Going Out)
         if (rackEmpty && move.word[0] != '\0') {
             int bonus = 0;
             for(int i=0; i<26; i++) bonus += otherRackCounts[i] * Heuristics::getTileValue((char)('A'+i));
@@ -297,30 +311,34 @@ int Judge::minimax(LetterBoard& board, const Board& bonusBoard,
             continue;
         }
 
-        // RECURSE
         int val = moveScore - minimax(nextBoard, bonusBoard, otherRackCounts, nextRack, dict,
                                       -beta, -alpha, !maximizingPlayer,
                                       (move.word[0]=='\0' ? passesInARow+1 : 0),
                                       depth+1, startTime, timeBudgetMs, transTable);
 
+        if (g_timeOut) return 0; // ABORT SIGNAL
+
         if (val > bestVal) bestVal = val;
         alpha = std::max(alpha, bestVal);
-        if (alpha >= beta) break;
+        if (alpha >= beta) break; // Alpha-Beta Cutoff
     }
 
-    // 6. Store in TT
+    // 5. CACHE PROTECTION: Do not save incomplete calculations
+    if (g_timeOut) return 0;
+
     TTEntry entry;
     entry.value = bestVal;
-    entry.depth = (60 - depth); // Storing remaining depth concept, though less relevant in endgame
-    if (bestVal <= alphaOrig) entry.flag = 2; // UpperBound
-    else if (bestVal >= beta) entry.flag = 1; // LowerBound
-    else entry.flag = 0; // Exact
+    entry.depth = (60 - depth);
+    if (bestVal <= alphaOrig) entry.flag = 2;
+    else if (bestVal >= beta) entry.flag = 1;
+    else entry.flag = 0;
 
     transTable[hash] = entry;
 
     return bestVal;
 }
 
+// Applies physics to local copies of the board and rack arrays
 bool Judge::applyMove(LetterBoard& board, const MoveCandidate& move, int* rackCounts) {
     int r = move.row; int c = move.col;
     int dr = move.isHorizontal ? 0 : 1; int dc = move.isHorizontal ? 1 : 0;
@@ -337,7 +355,7 @@ bool Judge::applyMove(LetterBoard& board, const MoveCandidate& move, int* rackCo
             } else {
                 int idx = letter - 'A';
                 if (rackCounts[idx] > 0) rackCounts[idx]--;
-                else if (rackCounts[26] > 0) rackCounts[26]--; // Use blank as fallback
+                else if (rackCounts[26] > 0) rackCounts[26]--; // Blanks as fallback
                 else return false;
             }
         }

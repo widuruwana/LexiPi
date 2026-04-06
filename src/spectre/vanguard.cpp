@@ -1,12 +1,16 @@
 #include "../../include/spectre/vanguard.h"
 #include "../../include/kernel/move_generator.h"
+#include "../../include/kernel/greedy_engine.h"
 #include "../../include/engine/mechanics.h"
 #include "../../include/engine/dictionary.h"
 #include <cmath>
 #include <limits>
 #include <algorithm>
-#include <chrono>
+#include <iostream>
 #include <cstring>
+#include <chrono>
+#include <thread>
+#include <atomic>
 
 using namespace std::chrono;
 
@@ -26,115 +30,122 @@ namespace spectre {
         const GameState& state,
         const Board& bonusBoard,
         const std::vector<kernel::MoveCandidate>& candidates,
-        spectre::Spy& spy)
+        const spectre::Spy& spy)
     {
         if (candidates.empty()) {
             kernel::MoveCandidate pass;
-            pass.word[0] = '\0';
-            pass.score = 0;
+            pass.word[0] = '\0'; pass.score = 0;
             return pass;
         }
 
-        // 1. UPDATE THE JIT CONTEXT
-        int myScore = state.players[state.currentPlayerIndex].score;
-        int oppScore = state.players[1 - state.currentPlayerIndex].score;
-        int scoreDiff = myScore - oppScore;
+        std::vector<EvaluatedMove> initial_untried;
+        initial_untried.reserve(candidates.size());
 
-        TopologyReport topo = general.scan_topology(state.board);
-        treasurer.update_market_context(topo, scoreDiff, state.bag);
-
-        auto root = std::make_unique<MCTSNode>(state, kernel::MoveCandidate(), nullptr);
-        root->untriedMoves.reserve(candidates.size());
-
-        // 2. EVALUATE ONCE & CACHE
-        for (const auto& c : candidates) {
-            root->untriedMoves.push_back({c, consult_council(state, c)});
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            // FIX: We pass the pure, unadulterated candidate.
+            // cand.score remains its actual point value!
+            EvaluatedMove em = {candidates[i], consult_council(state, candidates[i])};
+            initial_untried.push_back(em);
         }
 
-        // 3. SORT BY CACHED WIN PROBABILITY
-        std::sort(root->untriedMoves.begin(), root->untriedMoves.end(),
+        std::sort(initial_untried.begin(), initial_untried.end(),
             [](const EvaluatedMove& a, const EvaluatedMove& b) {
                 return a.win_prob < b.win_prob;
             });
 
-        // 4. MCTS LOOP
-        auto startTime = high_resolution_clock::now();
-        int mcts_iterations = 0; // We will track exactly how many simulations we run
+        int num_threads = std::thread::hardware_concurrency();
+        if (num_threads == 0) num_threads = 6;
 
-        while (true) {
-            auto now = high_resolution_clock::now();
-            auto duration = duration_cast<milliseconds>(now - startTime).count();
-            if (duration >= TIME_BUDGET_MS) break;
+        std::vector<std::unique_ptr<MCTSNode>> thread_roots(num_threads);
+        std::vector<std::thread> workers;
+        std::atomic<int> total_mcts_iterations{0};
 
-            MCTSNode* leaf = select_node(root.get());
+        auto startTime = std::chrono::high_resolution_clock::now();
 
-            if (!is_game_over(leaf->state) && !leaf->untriedMoves.empty()) {
-                leaf = expand_node(leaf, bonusBoard);
+        for (int t = 0; t < num_threads; ++t) {
+            workers.emplace_back([&, t]() {
+                thread_roots[t] = std::make_unique<MCTSNode>(state, kernel::MoveCandidate(), nullptr);
+                thread_roots[t]->untriedMoves = initial_untried;
+
+                int local_iters = 0;
+                while (true) {
+                    if ((local_iters & 31) == 0) {
+                        auto now = std::chrono::high_resolution_clock::now();
+                        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
+                        if (duration >= TIME_BUDGET_MS) break;
+                    }
+
+                    MCTSNode* leaf = select_node(thread_roots[t].get());
+
+                    if (!is_game_over(leaf->state) && !leaf->untriedMoves.empty()) {
+                        leaf = expand_node(leaf, bonusBoard);
+                    }
+
+                    double result = simulate_rollout(leaf->state, spy, bonusBoard);
+                    backpropagate(leaf, result);
+                    local_iters++;
+                }
+                total_mcts_iterations += local_iters;
+            });
+        }
+
+        for (auto& w : workers) {
+            if (w.joinable()) w.join();
+        }
+
+        struct MergedStats { int visits = 0; double score = 0.0; };
+        std::vector<MergedStats> merged(candidates.size());
+
+        for (int t = 0; t < num_threads; ++t) {
+            if (!thread_roots[t]) continue;
+
+            for (const auto& child : thread_roots[t]->children) {
+                // Safely match the child back to the original candidates list
+                for (size_t i = 0; i < initial_untried.size(); ++i) {
+                    if (child->moveLeadingTo.row == initial_untried[i].cand.row &&
+                        child->moveLeadingTo.col == initial_untried[i].cand.col &&
+                        child->moveLeadingTo.isHorizontal == initial_untried[i].cand.isHorizontal &&
+                        std::strcmp(child->moveLeadingTo.word, initial_untried[i].cand.word) == 0) {
+
+                        merged[i].visits += child->visits;
+                        merged[i].score += child->totalScore;
+                        break;
+                    }
+                }
             }
-
-            double result = simulate_rollout(leaf->state, spy, bonusBoard);
-            backpropagate(leaf, result);
-            mcts_iterations++;
         }
 
-        // 5. POST-SIMULATION ANALYSIS & REPORTING
-        // Sort children by the number of visits (The standard MCTS "Robust Child" selection)
-        std::vector<MCTSNode*> sorted_children;
-        for (const auto& child : root->children) {
-            sorted_children.push_back(child.get());
-        }
+        int bestIdx = initial_untried.size() - 1;
+        int maxVisits = -1;
 
-        std::sort(sorted_children.begin(), sorted_children.end(), [](MCTSNode* a, MCTSNode* b) {
-            return a->visits > b->visits;
-        });
-
-        // The Clean Telemetry Output
-        if (!sorted_children.empty()) {
-            std::cout << "\n======================================================\n";
-            std::cout << "[VANGUARD] MCTS Complete | Iterations: " << mcts_iterations
-                      << " | Time: " << TIME_BUDGET_MS << "ms\n";
-            std::cout << "------------------------------------------------------\n";
-            std::cout << " TOP 3 EVALUATED LINES (POST-SIMULATION)\n";
-            std::cout << "------------------------------------------------------\n";
-
-            for (size_t i = 0; i < std::min((size_t)3, sorted_children.size()); i++) {
-                MCTSNode* child = sorted_children[i];
-                kernel::MoveCandidate& mc = child->moveLeadingTo;
-
-                // Decode orientation so you know exactly WHERE the move is
-                char dir = mc.isHorizontal ? 'H' : 'V';
-
-                // Calculate actual MCTS win probability
-                double win_prob = (child->visits > 0) ? (child->totalScore / child->visits) : 0.0;
-
-                std::cout << " #" << (i+1) << ": " << mc.word
-                          << " [" << mc.row << "," << mc.col << " " << dir << "] "
-                          << "| Raw: " << mc.score
-                          << " | Visits: " << child->visits
-                          << " | Win Prob: " << (win_prob * 100.0) << "%\n";
+        for (size_t i = 0; i < merged.size(); ++i) {
+            if (merged[i].visits > maxVisits) {
+                maxVisits = merged[i].visits;
+                bestIdx = static_cast<int>(i);
             }
-            std::cout << "======================================================\n\n";
         }
 
-        // Return the most visited robust child
-        return !sorted_children.empty() ? sorted_children[0]->moveLeadingTo : candidates.back();
-    }
+        kernel::MoveCandidate bestMove = initial_untried[bestIdx].cand;
 
-    double Vanguard::consult_council(const GameState& state, const kernel::MoveCandidate& cand) {
-        Move m;
-        m.row = cand.row; m.col = cand.col; m.horizontal = cand.isHorizontal;
-        m.type = MoveType::PLAY;
-        std::strncpy(m.word, cand.word, 16); m.word[15] = '\0';
+        std::cout << "\n======================================================\n";
+        std::cout << "[VANGUARD] MCTS Complete | Total Iterations: " << total_mcts_iterations
+                  << " | Time: " << TIME_BUDGET_MS << "ms\n";
+        std::cout << "------------------------------------------------------\n";
+        std::cout << " SELECTED MOVE (ROOT PARALLELISM CONSENSUS)\n";
+        std::cout << "------------------------------------------------------\n";
 
-        float topoScore = general.evaluate_topology(state, m);
-        double topoBias = (topoScore - 0.5) * 40.0;
-        float nav = treasurer.evaluate_equity(state, m, cand.score);
+        double child_win_prob = (maxVisits > 0) ? (merged[bestIdx].score / maxVisits) : 0.0;
+        double true_win_prob = 1.0 - child_win_prob;
+        char dir = bestMove.isHorizontal ? 'H' : 'V';
 
-        int myScore = state.players[state.currentPlayerIndex].score;
-        int oppScore = state.players[1 - state.currentPlayerIndex].score;
-        int scoreDiff = myScore - oppScore;
+        std::cout << " > " << bestMove.word
+                  << " [" << bestMove.row << "," << bestMove.col << " " << dir << "] "
+                  << "| Raw Score: " << bestMove.score
+                  << " | Total Visits: " << maxVisits
+                  << " | Win Prob: " << (true_win_prob * 100.0) << "%\n";
+        std::cout << "======================================================\n\n";
 
-        return treasurer.normalize_to_winprob(scoreDiff, nav + topoBias, state.bag.size());
+        return bestMove;
     }
 
     MCTSNode* Vanguard::select_node(MCTSNode* node) {
@@ -160,17 +171,23 @@ namespace spectre {
         node->untriedMoves.pop_back();
 
         GameState newState = node->state.clone();
+        int activePlayer = newState.currentPlayerIndex;
+        int originalScore = newState.players[activePlayer].score;
 
-        Move m;
-        m.row = emove.cand.row; m.col = emove.cand.col; m.horizontal = emove.cand.isHorizontal;
-        m.type = MoveType::PLAY;
-        std::strncpy(m.word, emove.cand.word, 16); m.word[15] = '\0';
+        Mechanics::applyCandidateMove(newState, emove.cand);
 
-        Mechanics::applyMove(newState, m, emove.cand.score);
+        // FIX: Force the simulation to register the points, even if applyCandidateMove
+        // assumes the GameDirector normally handles it.
+        if (newState.players[activePlayer].score == originalScore) {
+            newState.players[activePlayer].score += emove.cand.score;
+        }
+
+        // FIX: Force the turn to flip so the rollout simulates the correct opponent.
+        if (newState.currentPlayerIndex == activePlayer) {
+            newState.currentPlayerIndex = 1 - activePlayer;
+        }
 
         auto child = std::make_unique<MCTSNode>(newState, emove.cand, node);
-
-        // O(1) Bias Transfer. Zero re-evaluation.
         child->heuristicBias = emove.win_prob;
 
         MCTSNode* childPtr = child.get();
@@ -179,8 +196,7 @@ namespace spectre {
     }
 
     double Vanguard::simulate_rollout(const GameState& startState, const spectre::Spy& spy, const Board& bonusBoard) {
-        // LIGHTWEIGHT ROLLOUT: No deep state clones, no heavy Treasurer evaluations.
-        std::vector<char> oppRackChars = spy.sampleParticleRack();
+        std::vector<char> oppRackChars = spy.generateWeightedRack();
         int oppRackCounts[27] = {0};
 
         for(char c : oppRackChars) {
@@ -188,27 +204,38 @@ namespace spectre {
             else if (isalpha(c)) oppRackCounts[toupper(c) - 'A']++;
         }
 
-        int bestScore = 0;
+        double bestNav = -10000.0;
+
+        // Zero-allocation lambda: Evaluates the board directly without cloning GameState
         auto opponentConsumer = [&](kernel::MoveCandidate& cand, int* leave) -> bool {
+            Move m;
+            m.row = cand.row; m.col = cand.col; m.horizontal = cand.isHorizontal; m.type = MoveType::PLAY;
+            std::strncpy(m.word, cand.word, 16); m.word[15] = '\0';
+
             int score = Mechanics::calculateTrueScore(cand, startState.board, bonusBoard);
-            if (score > bestScore) bestScore = score;
+            float nav = treasurer.evaluate_equity(startState, m, score);
+
+            if (nav > bestNav) bestNav = nav;
             return true;
         };
 
         kernel::MoveGenerator::generate_raw(startState.board, oppRackCounts, gDictionary, opponentConsumer);
 
+        if (bestNav == -10000.0) bestNav = 0.0;
+
         int myScore = startState.players[startState.currentPlayerIndex].score;
         int oppScore = startState.players[1 - startState.currentPlayerIndex].score;
         int scoreDiff = myScore - oppScore;
 
-        // Rollout uses pure expected loss, mapped cleanly to [0,1]
-        return treasurer.normalize_to_winprob(scoreDiff, -(float)bestScore, startState.bag.size());
+        // Passed as +bestNav so the leaf player's equity is correctly added to their standing
+        return treasurer.normalize_to_winprob(scoreDiff, bestNav, startState.bag.size());
     }
 
     void Vanguard::backpropagate(MCTSNode* node, double score) {
         while (node) {
             node->visits++;
             node->totalScore += score;
+            score = 1.0 - score; // NEGAMAX INVERSION: Flips probability for alternating turns
             node = node->parent;
         }
     }
@@ -216,11 +243,11 @@ namespace spectre {
     double Vanguard::calculate_uct_value(const MCTSNode* node) const {
         if (node->visits == 0) return 1e9;
 
-        double avgOutcome = node->totalScore / node->visits;
+        // Evaluate child from the parent's perspective (minimizing the child's win probability)
+        double parentPerspectiveScore = 1.0 - (node->totalScore / node->visits);
         double exploration = UCT_C * std::sqrt(std::log(node->parent->visits) / node->visits);
         double bias = (node->heuristicBias * BIAS_WEIGHT) / (1 + node->visits);
 
-        return avgOutcome + exploration + bias;
+        return parentPerspectiveScore + exploration + bias;
     }
-
 }

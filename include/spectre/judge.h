@@ -26,7 +26,7 @@ namespace spectre {
     public:
         // Main Entry Point
         static kernel::MoveCandidate solveEndgame(const LetterBoard& board, const Board& bonusBoard,
-                                 const TileRack& myRack, const TileRack& oppRack, Dictionary& dict);
+                                 const TileRack& myRack, const TileRack& oppRack, const Dictionary& dict);
 
     private:
         // Hash Helpers
@@ -37,7 +37,7 @@ namespace spectre {
                            const Board& bonusBoard,
                            int* currentRackCounts,
                            int* otherRackCounts,
-                           Dictionary& dict,
+                           const Dictionary& dict,
                            int alpha, int beta,
                            bool maximizingPlayer,
                            int passesInARow,

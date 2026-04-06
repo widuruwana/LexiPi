@@ -5,9 +5,7 @@
 #include "../player_controller.h"
 #include "../engine/dictionary.h"
 
-#include <mutex>
-
-#include <mutex>
+#include <string>
 
 struct MatchResult {
     int scoreP1;
@@ -15,16 +13,25 @@ struct MatchResult {
     int winner; // 0, 1, or -1 (Draw)
 };
 
+// >>> THE DECOUPLING INTERFACE <<<
+// The Engine broadcasts events here. It has no idea if the receiver is a Console, a GUI, or nothing.
+class GameObserver {
+public:
+    virtual ~GameObserver() = default;
+    virtual void onLogMessage(const std::string& msg) {}
+    virtual void onTurnStart(int gameId, int pIdx, const GameState& state, const Board& bonusBoard, const std::string& pName) {}
+    virtual void onGameOver(const GameState& state, const Board& bonusBoard) {}
+};
+
 class GameDirector {
 public:
     struct Config {
-        bool verbose;
         bool allowChallenge;
         bool sixPassEndsGame;
         int delayMs;
+        GameObserver* observer; // Replaced 'verbose'
 
-        // Explicit Constructor to fix compiler error
-        Config() : verbose(true), allowChallenge(true), sixPassEndsGame(true), delayMs(0) {}
+        Config() : allowChallenge(true), sixPassEndsGame(true), delayMs(0), observer(nullptr) {}
     };
 
     GameDirector(PlayerController* p1, PlayerController* p2,
@@ -38,16 +45,13 @@ private:
     Board bonusBoard;
     Config config;
 
-    // Internal State
     GameState state;
     GameState snapshot;
     LastMoveInfo lastMove;
     bool canChallenge;
 
-    // Core Logic
     void initGame();
     bool processTurn(int pIdx);
     void executePlay(int pIdx, Move& move);
     bool executeChallenge(int challengerIdx);
-    void log(const std::string& msg);
 };

@@ -1,146 +1,124 @@
 #include "../include/ai_player.h"
+#include "../include/kernel/heuristics.h"
+#include "../include/tile_tracker.h"
+#include "../include/kernel/move_generator.h"
+#include "../include/engine/dictionary.h"
+#include "../include/modes/PvE/pve.h"
 #include "../include/spectre/judge.h"
 #include "../include/engine/mechanics.h"
-#include "../include/engine/dictionary.h"
+#include "../include/kernel/fast_constraints.h"
+#include "../include/spectre/spectre_engine.h"
+
 #include <cstring>
-#include <iostream>
-#include <random>
 #include <algorithm>
+#include <iostream>
 
-std::unique_ptr<PlayerController> create_ai_player(AIStyle style) {
-    if (style == AIStyle::SPEEDI_PI) {
-        return std::make_unique<GreedyPlayer>();
+using namespace spectre;
+using namespace std;
+
+AIPlayer::AIPlayer(AIStyle style) : style(style) {}
+
+void AIPlayer::reset() {
+    engine.reset();
+}
+
+string AIPlayer::getName() const {
+    return (style == AIStyle::SPEEDI_PI) ? "Speedi_Pi" : "Cutie_Pi";
+}
+
+void AIPlayer::observeMove(const Move& move, const LetterBoard& board, const Board& bonusBoard) {
+    if (style == AIStyle::CUTIE_PI) {
+        engine.notify_move(move, board, bonusBoard);
     }
-    return std::make_unique<SpectrePlayer>();
 }
 
-// =========================================================
-// GREEDY PLAYER IMPLEMENTATION (Stateless Control Group)
-// =========================================================
+Move AIPlayer::getMove(const GameState& state,
+                       const Board& bonusBoard,
+                       const LastMoveInfo& lastMove,
+                       bool canChallenge)
+{
+    // 1. Procedural Challenge Logic
+    if (canChallenge && !lastMove.formedWords.empty()) {
+        for (const auto& word : lastMove.formedWords) {
+            if (!gDictionary.isValidWord(word)) return Move(MoveType::CHALLENGE);
+        }
+    }
 
-GreedyPlayer::GreedyPlayer(std::string n) : playerName(n) {}
+    // 2. THE CLEAN HANDOFF: Ask the Spectre Engine for a move, passing our Style
+    kernel::MoveCandidate bestMove = engine.deliberate(state, bonusBoard, style == AIStyle::SPEEDI_PI);
 
-std::string GreedyPlayer::getName() const {
-    return playerName;
-}
-
-Move GreedyPlayer::getMove(const GameState& state, const Board& bonusBoard, const LastMoveInfo& lastMove, bool canChallenge) {
+    // 3. Fallback / Exchange Logic
     const Player& me = state.players[state.currentPlayerIndex];
+    bool shouldExchange = (bestMove.word[0] == '\0') ||
+                          (bestMove.score < 14 && isRackBad(me.rack) && state.bag.size() >= 7);
 
-    // Pure stateless generation
-    kernel::MoveCandidate bestCand = kernel::GreedyEngine::generate_best_move(state, bonusBoard);
-
-    if (bestCand.word[0] == '\0') {
-        return Move(MoveType::PASS);
+    if (shouldExchange) {
+        if (state.bag.size() < 7) return Move(MoveType::PASS);
+        Move ex(MoveType::EXCHANGE);
+        string s = getTilesToExchange(me.rack);
+        strncpy(ex.exchangeLetters, s.c_str(), 7);
+        ex.exchangeLetters[7] = '\0';
+        return ex;
     }
 
-    Move m(MoveType::PLAY);
-    m.row = bestCand.row;
-    m.col = bestCand.col;
-    m.horizontal = bestCand.isHorizontal;
-    std::strncpy(m.word, bestCand.word, 16);
-    m.word[15] = '\0';
+    // 4. Play Submission
+    if (bestMove.word[0] == '\0') return Move(MoveType::PASS);
 
-    return m;
+    Move result(MoveType::PLAY);
+    result.row = bestMove.row;
+    result.col = bestMove.col;
+    result.horizontal = bestMove.isHorizontal;
+    strncpy(result.word, bestMove.word, 15);
+    result.word[15] = '\0';
+
+    return result;
 }
 
-Move GreedyPlayer::getEndGameResponse(const GameState& state, const LastMoveInfo& lastMove) {
+Move AIPlayer::getEndGameResponse(const GameState& state, const LastMoveInfo& lastMove) {
+    for (const auto& word : lastMove.formedWords) {
+        if (!gDictionary.isValidWord(word)) return Move(MoveType::CHALLENGE);
+    }
     return Move(MoveType::PASS);
 }
 
-// =========================================================
-// SPECTRE PLAYER IMPLEMENTATION (Stateful Test Group)
-// =========================================================
+// --- HEURISTIC HELPERS ---
+bool AIPlayer::isRackBad(const TileRack& rack) {
+    int vowels = 0, consonants = 0, blanks = 0, dupes = 0;
+    int counts[26] = {0};
 
-SpectrePlayer::SpectrePlayer(std::string n) : playerName(n) {}
-
-std::string SpectrePlayer::getName() const {
-    return playerName;
-}
-
-void SpectrePlayer::observeMove(const Move& move, const LetterBoard& preMoveBoard) {
-    spy.observeOpponentMove(move, preMoveBoard);
-}
-
-Move SpectrePlayer::getEndGameResponse(const GameState& state, const LastMoveInfo& lastMove) {
-    return Move(MoveType::PASS);
-}
-
-Move SpectrePlayer::getMove(const GameState& state, const Board& bonusBoard, const LastMoveInfo& lastMove, bool canChallenge) {
-    const Player& me = state.players[state.currentPlayerIndex];
-
-    // 1. UPDATE INTELLIGENCE
-    spy.updateGroundTruth(state.board, me.rack, state.bag);
-
-    kernel::MoveCandidate bestCand;
-    bestCand.word[0] = '\0';
-    bestCand.score = 0;
-
-    // 2. DECISION FORK
-    if (state.bag.empty()) {
-        // --- ENDGAME (The Judge) ---
-        std::vector<char> inferredOppChars;
-        const std::vector<char>& rawPool = spy.getUnseenPool();
-
-        if (rawPool.size() <= 7) {
-            inferredOppChars = rawPool;
-        } else {
-            inferredOppChars = rawPool;
-            static thread_local std::mt19937 rng(std::random_device{}());
-            std::shuffle(inferredOppChars.begin(), inferredOppChars.end(), rng);
-            if (inferredOppChars.size() > 7) {
-                inferredOppChars.resize(7);
-            }
+    for (const auto& t : rack) {
+        if (t.letter == '?') blanks++;
+        else {
+            char c = toupper(t.letter);
+            if (c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U') vowels++;
+            else consonants++;
+            if (++counts[c - 'A'] > 1) dupes++;
         }
-
-        TileRack oppRack;
-        for(char c : inferredOppChars) {
-            Tile t;
-            t.letter = c;
-            t.points = Mechanics::getPointValue(c);
-            oppRack.push_back(t);
-        }
-
-        bestCand = spectre::Judge::solveEndgame(state.board, bonusBoard, me.rack, oppRack, gDictionary);
-    }
-    else {
-        // --- MIDGAME (The Vanguard + Zero Allocation Root Generator) ---
-        std::vector<kernel::MoveCandidate> candidates;
-        candidates.reserve(300); // Prevent reallocation during generation
-
-        int myRackCounts[27] = {0};
-        for (const auto& t : me.rack) {
-            if (t.letter == '?') {
-                myRackCounts[26]++;
-            } else if (isalpha(t.letter)) {
-                myRackCounts[toupper(t.letter) - 'A']++;
-            }
-        }
-
-        // The Zero-Allocation Consumer Pipeline
-        auto rootConsumer = [&](kernel::MoveCandidate& cand, int* leave) -> bool {
-            cand.score = Mechanics::calculateTrueScore(cand, state.board, bonusBoard);
-            candidates.push_back(cand);
-            return true;
-        };
-
-        kernel::MoveGenerator::generate_raw(state.board, myRackCounts, gDictionary, rootConsumer);
-
-        // Pass the pre-evaluated candidates to Vanguard
-        bestCand = vanguard.select_best_move(state, bonusBoard, candidates, spy);
     }
 
-    if (bestCand.word[0] == '\0') {
-        return Move(MoveType::PASS);
+    if (blanks > 0) return false;
+    if (vowels == 0 || consonants == 0) return true;
+    if (vowels > 5 || consonants > 5) return true;
+    if (dupes > 2) return true;
+
+    return false;
+}
+
+string AIPlayer::getTilesToExchange(const TileRack& rack) {
+    string keep = "", exchange = "";
+    int counts[26] = {0};
+
+    for (const auto& t : rack) {
+        if (t.letter == '?') { keep += t.letter; continue; }
+        char c = toupper(t.letter);
+        counts[c - 'A']++;
+        bool isGood = (c == 'S' || c == 'E' || c == 'A' || c == 'R' || c == 'T' || c == 'X' || c == 'Z');
+        if (isGood && counts[c - 'A'] == 1) keep += t.letter;
+        else exchange += t.letter;
     }
 
-    // 3. FULL STRING SEMANTICS (Fixes Spy/Treasurer tracking bugs)
-    Move m(MoveType::PLAY);
-    m.row = bestCand.row;
-    m.col = bestCand.col;
-    m.horizontal = bestCand.isHorizontal;
-    std::strncpy(m.word, bestCand.word, 16);
-    m.word[15] = '\0';
-
-    return m;
+    if (exchange.empty()) {
+        for (const auto& t : rack) if (t.letter != '?') exchange += t.letter;
+    }
+    return exchange;
 }

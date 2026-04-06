@@ -12,12 +12,12 @@
 #include "../../../include/ai_player.h"
 #include "../../../include/engine/game_director.h"
 #include "../../../include/interface/renderer.h"
-
+#include "../../../include/interface/console_observer.h"
 
 using namespace std;
 
 void runPvE() {
-    if (gDictionary.nodes.empty()) gDictionary.loadFromFile("csw24.txt");
+    if (gDictionary.nodes.empty()) gMutableDictionary.loadFromFile("csw24.txt");
 
     cout << "\n=========================================\n";
     cout << "           SELECT OPPONENT\n";
@@ -35,15 +35,17 @@ void runPvE() {
 
     // 1. Setup Controllers
     HumanPlayer p1;
-    std::unique_ptr<PlayerController> p2 = create_ai_player(style);
+    AIPlayer p2(style);
 
     // 2. Setup Director
     Board b = createBoard();
     GameDirector::Config cfg;
-    cfg.verbose = true;
+    ConsoleObserver obs;
+    cfg.observer = &obs;
     cfg.allowChallenge = true;
+    cfg.sixPassEndsGame = true;
 
-    GameDirector director(&p1, p2.get(), b, cfg);
+    GameDirector director(&p1, &p2, b, cfg);
 
     // 3. Run
     director.run();
